@@ -24,5 +24,11 @@ best-effort.
   flips it back to agent.
 - ~~`keyboard.paste({ html })`~~ Done: bridge-side clipboard write, native
   paste, restore.
-- Multi-window support (one window per space on demand).
-- Debounced/queued `spaceChanged` pushes for chatty pages.
+- Multi-window support (one window per space on demand) — deferred: the
+  single window + space switcher covers current agent and daily-browse flows.
+- ~~Debounced/queued `spaceChanged` pushes~~ Done: 30ms per-space coalescing;
+  `taskState` stays immediate.
+- Chrome bookmarks/history/extensions import — deferred: bookmark import has
+  no UI to land in yet (no bookmarks bar), and the reference Chrome profile
+  has zero bookmarks; extensions are not loadable into Electron sessions in
+  any supported way. Revisit when a bookmarks UI exists.

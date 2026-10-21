@@ -96,7 +96,21 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
     const line = `${JSON.stringify(obj)}\n`;
     for (const c of clients) c.write(line);
   }
-  spaces.on('spaceChanged', (spaceId) => broadcast({ event: 'spaceChanged', spaceId }));
+
+  // Chatty pages fire spaceChanged per navigation/title update; coalesce
+  // pushes per space within a short window. taskState stays immediate.
+  const PUSH_DEBOUNCE_MS = 30;
+  const pendingSpaces = new Set();
+  let pushTimer = null;
+  spaces.on('spaceChanged', (spaceId) => {
+    pendingSpaces.add(spaceId);
+    if (pushTimer) return;
+    pushTimer = setTimeout(() => {
+      pushTimer = null;
+      for (const id of pendingSpaces) broadcast({ event: 'spaceChanged', spaceId: id });
+      pendingSpaces.clear();
+    }, PUSH_DEBOUNCE_MS);
+  });
   spaces.on('taskState', (spaceId, state) => broadcast({ event: 'taskState', spaceId, state }));
 
   const dispatch = {

@@ -194,7 +194,28 @@ test('spaceChanged push events reach connected clients', async (t) => {
   });
   await new Promise((r) => s.on('connect', r));
   await request(sockPath, 'createTaskSpace', { name: 'pushy' });
-  await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 150));
   s.end();
   assert.ok(events.some((e) => e.event === 'spaceChanged'));
+});
+
+test('rapid spaceChanged bursts are coalesced into one push per space', async (t) => {
+  const { sockPath, spaces } = await setup(t);
+  const events = [];
+  const s = net.connect(sockPath);
+  s.on('data', (d) => {
+    for (const line of d.toString().split('\n').filter(Boolean)) {
+      const msg = JSON.parse(line);
+      if (msg.event === 'spaceChanged') events.push(msg);
+    }
+  });
+  await new Promise((r) => s.on('connect', r));
+  const t2 = spaces.createTaskSpace({ name: 'bursty' });
+  await spaces.whenTabsReady(t2.id);
+  await new Promise((r) => setTimeout(r, 150));
+  s.end();
+  // createTaskSpace fires #addTab (1 change); noteTargetId from readiness may
+  // fire one more after the debounce window — never the uncoalesced burst.
+  const forSpace = events.filter((e) => e.spaceId === t2.id);
+  assert.ok(forSpace.length >= 1 && forSpace.length <= 2, `expected 1-2 pushes, got ${forSpace.length}`);
 });
