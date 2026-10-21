@@ -118,8 +118,17 @@ await source.goto("https://example.com/releases");
 ```
 
 Do not inspect or select profiles unless the user explicitly requests a
-particular profile. A `profileId` applies only when creating a space; use
-`help("profiles")` for the exact workflow.
+particular profile. Profiles are created outside the agent surface
+(`ego-browser profiles create <name>`, or `ego-browser profiles` to list).
+A profile applies only when creating a space; pass its `id` once:
+
+```js
+// New space bound to a non-default profile; cookies/storage are isolated
+// from the Default profile. Resuming the same name keeps its profile.
+const task = await taskSpace("work-scrape", { profile: "Profile 2" });
+```
+
+Omit `profile` for the Default profile shared with the user's own browsing.
 
 Supported TaskSpace API:
 
@@ -165,7 +174,8 @@ ego-browser provides the following Page API:
   `waitForEvent()`, `waitForSelector()`, `waitForLoadState()`,
   `waitForFunction()`, `waitForTimeout()`
 - Elements: `click()`, `dblclick()`, `hover()`, `dragAndDrop()`, `fill()`,
-  `selectOption()`, `focus()`, `press()`, `setInputFiles()`, `close()`
+  `selectOption()`, `focus()`, `press()`, `setInputFiles()`,
+  `waitForFileChooser()`, `close()`
 - Dialogs: `acceptDialog(promptText?)`, `dismissDialog()`
 - Pointer: `mouse.click()`, `mouse.move()`, `mouse.down()`, `mouse.up()`,
   `mouse.wheel()`
@@ -345,6 +355,19 @@ Set an existing file input with absolute paths:
 ```js
 await page.setInputFiles("input[type=file]", ["/absolute/path/report.pdf"]);
 ```
+
+If a click opens the file chooser instead, arm the wait before the click:
+
+```js
+const chooserPromise = page.waitForFileChooser({ timeout: 10_000 });
+await page.click("button.upload");
+const chooser = await chooserPromise;
+await chooser.setFiles("/absolute/path/report.pdf"); // or chooser.cancel()
+```
+
+`chooser.isMultiple()` reports whether the input accepts several files; pass
+an array to `setFiles()` for those. A chooser that no script waits for is
+cancelled automatically, so pages never hang on a native dialog.
 
 For a browser download, arm the event before the triggering action and save the
 returned artifact to an absolute path in the same script:

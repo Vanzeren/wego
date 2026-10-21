@@ -98,6 +98,7 @@ Commands:
   nodejs      Run a browser automation script (stdin or -e '<code>')
   skill       Print the ego-browser agent skill guide
   launch      Start the ego lite browser and wait until ready
+  profiles    List profiles; 'profiles create <name>' adds one
   version     Print the CLI version
   doctor      Check the local environment
   help        Show this help
@@ -178,6 +179,30 @@ async function cmdLaunch() {
   return 0;
 }
 
+async function cmdProfiles(args) {
+  const [sub, ...rest] = args;
+  await ensureBrowser();
+  if (sub === undefined || sub === 'list') {
+    const { profiles } = await bridgeRequest('listProfiles');
+    for (const p of profiles) {
+      console.log(`${p.id}\t${p.name}${p.isDefault ? '\t(default)' : ''}`);
+    }
+    return 0;
+  }
+  if (sub === 'create') {
+    const name = rest.join(' ').trim();
+    if (!name) {
+      console.error('usage: ego-browser profiles create <name>');
+      return 2;
+    }
+    const profile = await bridgeRequest('createProfile', { name });
+    console.log(`${profile.id}\t${profile.name}`);
+    return 0;
+  }
+  console.error('usage: ego-browser profiles [list] | profiles create <name>');
+  return 2;
+}
+
 async function cmdDoctor() {
   let failed = false;
   const report = (ok, label, detail = '') => {
@@ -218,6 +243,8 @@ export async function run(argv) {
       return cmdSkill(rest);
     case 'launch':
       return cmdLaunch();
+    case 'profiles':
+      return cmdProfiles(rest);
     case 'version':
       console.log(VERSION);
       return 0;

@@ -31,6 +31,8 @@ const server = http.createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
+fs.writeFileSync('/tmp/ego-smoke-upload.txt', `smoke-upload ${Date.now()}\n`);
+
 const script = `
 const assert = (cond, label) => {
   if (!cond) { console.error('SMOKE ASSERT FAIL: ' + label); process.exit(1); }
@@ -60,6 +62,19 @@ assert(headline === 'Welcome smoke@example.com', 'headline is "Welcome smoke@exa
 
 const shot = await page.screenshot({ path: '/tmp/ego-smoke.png' });
 assert(typeof shot === 'string' && shot.length > 0, 'screenshot saved: ' + shot);
+
+// file chooser: arm before the click, then resolve with a real file
+const chooserPromise = page.waitForFileChooser({ timeout: 8000 });
+await page.click('text="Upload"');
+const chooser = await chooserPromise;
+await chooser.setFiles('/tmp/ego-smoke-upload.txt');
+await page.waitForFunction(
+  () => document.getElementById('log').textContent.includes('file=ego-smoke-upload.txt:'),
+  undefined,
+  { timeout: 5000 },
+);
+console.log('smoke assert ok: file chooser upload reflected in page log');
+
 await task.finish({ keep: [] });
 console.log('SMOKE SCRIPT DONE');
 `;
@@ -96,6 +111,7 @@ try {
   check(result.out.includes('smoke assert ok: snapshot contains "Sign in"'), 'assert: snapshot has Sign in');
   check(result.out.includes('smoke assert ok: snapshot contains "Frame button"'), 'assert: snapshot has Frame button');
   check(result.out.includes('Welcome smoke@example.com'), 'assert: headline updated after Sign in');
+  check(result.out.includes('file chooser upload reflected'), 'assert: file chooser upload');
   check(fs.existsSync('/tmp/ego-smoke.png') && fs.statSync('/tmp/ego-smoke.png').size > 0, 'screenshot exists at /tmp/ego-smoke.png');
   failed = checks.some((c) => !c.ok);
 } finally {

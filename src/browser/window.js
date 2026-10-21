@@ -8,7 +8,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Keep in sync with renderer/ui.js layout constants.
 const CHROME_HEIGHT = 84;
 const SIDEBAR_WIDTH = 200;
-const PARTITION = 'persist:default'; // shared by all spaces so logins carry over (ego parity)
+// The Default profile shares one session across all spaces (logins carry
+// over); extra profiles get isolated partitions.
+function partitionFor(space) {
+  return space.profileId === 'Default'
+    ? 'persist:default'
+    : `persist:profile-${space.profileId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
 
 function normalizeUrl(input) {
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) return input;
@@ -68,7 +74,7 @@ export function createMainWindow({ httpEndpoint } = {}) {
   const spaces = new SpaceManager({
     createView(space, tab) {
       const view = new WebContentsView({
-        webPreferences: { partition: PARTITION, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+        webPreferences: { partition: partitionFor(space), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
       });
       wireTabView(space, tab, view);
       view.setBackgroundColor('#ffffff');

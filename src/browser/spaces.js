@@ -58,7 +58,7 @@ export class SpaceManager extends EventEmitter {
       ownership: space.ownership,
       control: space.control,
       profileId: space.profileId,
-      profileName: space.profileId,
+      profileName: space.profileName ?? space.profileId,
       recentTabTitles: [...space.recentTabTitles],
     };
   }
@@ -102,14 +102,14 @@ export class SpaceManager extends EventEmitter {
     return { taskSpaces: [...this.#spaces.values()].map((s) => this.#describe(s)) };
   }
 
-  createTaskSpace({ name, profileId = 'Default' }) {
-    if (profileId !== 'Default') throw err('EGO_PROFILE_NOT_FOUND', `Profile not found: ${profileId}`);
+  createTaskSpace({ name, profileId = 'Default', profileName }) {
     for (const s of this.#spaces.values()) {
       if (s.name !== name) continue;
       if (s.ownership === 'agent') return { id: s.id, taskId: s.taskId, name: s.name }; // resume
       throw err('EGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
     }
     const space = this.#newSpace({ name, createdBy: 'agent', ownership: 'agent', control: 'agent', profileId });
+    space.profileName = profileName ?? profileId;
     // ego parity: a new task space starts with Page p1 on a blank tab.
     this.#addTab(space, 'about:blank');
     return { id: space.id, taskId: space.taskId, name: space.name };
@@ -271,7 +271,12 @@ export class SpaceManager extends EventEmitter {
     const space = this.requireSpace(id);
     const tab = space.tabs.find((t) => t.targetId === targetId);
     if (!tab) throw err('EGO_INVALID_ARGUMENT', `Tab not found: ${targetId} in space ${id}`);
-    if (tab.targetIdReady) await tab.targetIdReady.catch(() => {});
+    if (tab.targetIdReady) {
+      const ok = await tab.targetIdReady.then(() => true, () => false);
+      if (!ok || tab.targetId.startsWith('tab-')) {
+        throw err('EGO_OPERATION_FAILED', `CDP target resolution failed for tab in space ${id}`);
+      }
+    }
     return tab.targetId;
   }
 

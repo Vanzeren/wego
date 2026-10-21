@@ -62,8 +62,23 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
   }
 
   const sockPath = process.env.EGO_BRIDGE_SOCK || path.join(os.homedir(), '.ego-lite', 'bridge.sock');
-  fs.mkdirSync(path.dirname(sockPath), { recursive: true });
+  const stateDir = path.dirname(sockPath);
+  fs.mkdirSync(stateDir, { recursive: true });
   try { fs.unlinkSync(sockPath); } catch { /* no stale socket */ }
+
+  // Profile registry: Default always exists; extra profiles persist here and
+  // map to Electron session partitions persist:profile-<id> (see window.js).
+  const profilesFile = path.join(stateDir, 'profiles.json');
+  const profiles = (() => {
+    try {
+      const list = JSON.parse(fs.readFileSync(profilesFile, 'utf8'));
+      if (Array.isArray(list) && list.some((p) => p.id === 'Default')) return list;
+    } catch { /* first run or corrupt */ }
+    return [{ id: 'Default', name: 'Default' }];
+  })();
+  let nextProfileNum = profiles.length;
+  const saveProfiles = () => fs.writeFileSync(profilesFile, JSON.stringify(profiles, null, 2), { mode: 0o600 });
+  saveProfiles();
 
   const clients = new Set();
 
@@ -83,14 +98,31 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       cdpEndpoint: cdp.webSocketDebuggerUrl,
     }),
 
-    listProfiles: () => ({ profiles: [{ id: 'Default', name: 'Default', isDefault: true }] }),
+    listProfiles: () => ({
+      profiles: profiles.map((p) => ({ id: p.id, name: p.name, isDefault: p.id === 'Default' })),
+    }),
+
+    // Extension beyond the ego native API: profiles are created via CLI/UI,
+    // not by agents through ego.* bindings.
+    createProfile: (params) => {
+      const name = reqString(params, 'name');
+      const profile = { id: `Profile ${++nextProfileNum}`, name };
+      profiles.push(profile);
+      saveProfiles();
+      return { id: profile.id, name: profile.name };
+    },
 
     listTaskSpaces: () => spaces.listTaskSpaces(),
 
     createTaskSpace: (params) => {
       const name = reqString(params, 'name');
       const profileId = optString(params, 'profileId');
-      return spaces.createTaskSpace(profileId === undefined ? { name } : { name, profileId });
+      if (profileId !== undefined && profileId !== 'default') {
+        const profile = profiles.find((p) => p.id === profileId);
+        if (!profile) throw err('EGO_PROFILE_NOT_FOUND', 'Profile not found');
+        return spaces.createTaskSpace({ name, profileId: profile.id, profileName: profile.name });
+      }
+      return spaces.createTaskSpace({ name, profileName: 'Default' });
     },
 
     claimTaskSpace: (params) => {

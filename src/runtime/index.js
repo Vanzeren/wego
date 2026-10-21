@@ -56,7 +56,10 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
     return space;
   }
 
-  async function taskSpace(nameOrId) {
+  async function taskSpace(nameOrId, options) {
+    if (options !== undefined && (typeof options !== 'object' || options === null || Array.isArray(options))) {
+      throw Object.assign(new TypeError('taskSpace(name, options) options must be an object'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    }
     if (typeof nameOrId === 'number') {
       const { taskSpaces } = await ego.listTaskSpaces();
       const found = taskSpaces.find((s) => s.id === nameOrId);
@@ -68,8 +71,9 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
       return materialize({ ...found, ...descriptor });
     }
     if (typeof nameOrId === 'string' && nameOrId) {
-      // create-or-resume: bridge resumes on agent-owned name collision
-      const descriptor = await ego.createTaskSpace(nameOrId);
+      // create-or-resume: bridge resumes on agent-owned name collision.
+      // { profile } applies only at creation, matching ego semantics.
+      const descriptor = await ego.createTaskSpace(nameOrId, options?.profile);
       return materialize(descriptor);
     }
     throw Object.assign(new TypeError('taskSpace(nameOrId) expects a name string or numeric id'), { error_code: 'EGO_INVALID_ARGUMENT' });

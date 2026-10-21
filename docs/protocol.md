@@ -36,14 +36,22 @@ All task-space methods take the numeric space `id` explicitly in `params`.
   - `cdpEndpoint`: WebSocket URL of the Chromium browser-level CDP endpoint
     (e.g. `ws://127.0.0.1:PORT/devtools/browser/<id>`). Raw CDP and SDK
     sessions go directly over this endpoint, not through the bridge.
-- `listProfiles()` → `{ profiles: [{ id: "Default", name: "Default", isDefault: true }] }`
+- `listProfiles()` → `{ profiles: [{ id, name, isDefault }] }`
+  - `Default` always exists and maps to the shared `persist:default` session
+    partition (logins carry over between all Default-profile spaces). Extra
+    profiles persist in `~/.ego-lite/profiles.json` and get isolated
+    partitions (`persist:profile-<id>`).
+- `createProfile({ name })` → `{ id, name }` — CLI/UI extension; not exposed
+  through the `ego.*` agent bindings.
 
 ### Task spaces
 
 - `listTaskSpaces()` → `{ taskSpaces: [{ id, taskId, name, createdBy: "user"|"agent", ownership: "user"|"agent", control: "user"|"agent", profileId, profileName, recentTabTitles: string[] }] }`
 - `createTaskSpace({ name, profileId? })` → `{ id, taskId, name }`
-  - Errors: `EGO_INVALID_ARGUMENT` (bad name/profileId type),
-    `EGO_PROFILE_NOT_FOUND`, `EGO_TASK_SPACE_NAME_IN_USE` (an agent-owned
+  - `profileId` omitted, `"default"`, or `"Default"` ⇒ Default profile.
+    Unknown id ⇒ `EGO_PROFILE_NOT_FOUND`. Other errors:
+    `EGO_INVALID_ARGUMENT` (bad name/profileId type),
+    `EGO_TASK_SPACE_NAME_IN_USE` (an agent-owned
     space with this name already exists; that case instead RESUMES the space
     and returns its descriptor — name collision with a *user-owned* space
     returns the error).

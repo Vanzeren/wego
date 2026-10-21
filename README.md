@@ -61,8 +61,10 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   `EGO_TASK_SPACE_USER_IN_CONTROL` and blocks tabs, snapshot, and raw CDP.
 - Handoff / takeover (`task.handOff()`, `takeOverTaskSpace(id)`), agent
   progress text, `finish({ keep })` semantics.
-- Shared profile: all spaces share `persist:default`, so agent spaces inherit
-  your logins.
+- Shared profile: all Default-profile spaces share `persist:default`, so
+  agent spaces inherit your logins. Extra profiles
+  (`ego-browser profiles create <name>`) get isolated cookie/storage
+  partitions; bind a space with `taskSpace(name, { profile: "Profile 2" })`.
 - Snapshot: accessibility-tree text with `[ref=N]` refs, roles/names, shadow
   DOM, same-origin iframes (refs inside them, `framePath`), disabled/hidden
   handling, compaction, subtree/viewport/full-page scopes, stable locators
@@ -74,8 +76,9 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   `loc=href:`, `xpath=`, `css=`, raw CSS, `>> nth=N`; shadow-piercing; exactly-
   one-match semantics with `not_found`/`ambiguous`/`not_actionable` errors.
 - Waits: load states, URL, selector, function, network idle, popup/download
-  events; dialogs (accept/dismiss); screenshots; `page.evaluate`/`page.fetch`/
-  `page.cdp`; raw browser CDP via `task.cdp`.
+  events; dialogs (accept/dismiss); file choosers (`waitForFileChooser` +
+  `setFiles`/`cancel`); screenshots; `page.evaluate`/`page.fetch`/`page.cdp`;
+  raw browser CDP via `task.cdp`.
 - Popups (`window.open`, `target=_blank`) become tabs in the same space;
   downloads via `waitForEvent("download")` + `saveAs`.
 - `scripts/smoke.mjs`: self-contained end-to-end check (`npm run smoke`).
@@ -83,10 +86,11 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 ## Known limits (vs ego-lite on macOS/Windows)
 
 - Cross-origin OOPIF iframes appear in snapshots but their inner nodes have no
-  refs (same-origin iframes are fully supported).
+  refs (same-origin iframes are fully supported). See `docs/roadmap.md`.
 - `keyboard.paste({ html })` is unsupported on Linux (plain text uses
-  `insertText`); no `waitForFileChooser` (use `setInputFiles`).
-- One browser profile (`Default`); Chrome profile/cookie import not available.
+  `insertText`).
+- Chrome profile/cookie import not available; log in once inside ego lite
+  (Default profile persists across restarts).
 - The remote-debugging endpoint is bound to 127.0.0.1 without auth; the bridge
   socket is `0600`. Do not expose either on shared machines.
 - Spaces and tab labels are in-memory; closing the browser ends all spaces.

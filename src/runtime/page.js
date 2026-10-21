@@ -64,6 +64,41 @@ class Download {
 
 // ---------------------------------------------------------------- Page
 
+// One intercepted file chooser. Created when Page.fileChooserOpened fires;
+// resolve it with setFiles() or let the no-waiter path cancel it.
+class FileChooser {
+  constructor(page, params) {
+    this._page = page;
+    this._backendNodeId = params.backendNodeId;
+    this.mode = params.mode; // 'selectSingle' | 'selectMultiple'
+    this._done = false;
+  }
+
+  isMultiple() { return this.mode === 'selectMultiple'; }
+
+  async setFiles(paths) {
+    if (this._done) throw new CDPError('File chooser already handled', 'EGO_OPERATION_FAILED');
+    const list = Array.isArray(paths) ? paths : [paths];
+    for (const p of list) {
+      if (typeof p !== 'string' || !path.isAbsolute(p)) {
+        throw Object.assign(new TypeError('setFiles expects absolute paths'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      }
+    }
+    const session = await this._page._session();
+    await session.send('DOM.setFileInputFiles', { files: list, backendNodeId: this._backendNodeId });
+    this._done = true;
+    return this._page._receipt();
+  }
+
+  // Empty file list resolves the intercepted chooser as a cancel.
+  async cancel() {
+    if (this._done) return;
+    const session = await this._page._session();
+    await session.send('DOM.setFileInputFiles', { files: [], backendNodeId: this._backendNodeId }).catch(() => {});
+    this._done = true;
+  }
+}
+
 export class Page {
   constructor(space, label, targetId, openedBy) {
     this.space = space;
@@ -79,6 +114,7 @@ export class Page {
     this._downloadWaiters = [];
     this._activeDownloads = new Map();
     this._popupWaiters = [];
+    this._chooserWaiters = [];
     this._networkInFlight = 0;
     this._lastNetworkActivity = 0;
     this._mousePos = { x: 0, y: 0 };
@@ -103,6 +139,21 @@ export class Page {
           this._recordEvent('Page.javascriptDialogOpening', p);
         });
         session.on('Page.javascriptDialogClosed', () => { this._dialog = null; });
+
+        // Intercept file choosers so scripts can arm waitForFileChooser()
+        // before the triggering click. Unwaited choosers are cancelled so the
+        // page never hangs on a native dialog.
+        await session.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => {});
+        session.on('Page.fileChooserOpened', (p) => {
+          this._recordEvent('Page.fileChooserOpened', p);
+          const chooser = new FileChooser(this, p);
+          const waiters = this._chooserWaiters.splice(0);
+          if (waiters.length) {
+            for (const w of waiters) w(chooser);
+          } else {
+            void chooser.cancel();
+          }
+        });
 
         session.on('Network.requestWillBeSent', () => { this._networkInFlight++; this._lastNetworkActivity = Date.now(); });
         session.on('Network.loadingFinished', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
@@ -287,6 +338,11 @@ export class Page {
       return dl;
     }
     throw Object.assign(new TypeError(`waitForEvent: unknown event ${name}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+  }
+
+  async waitForFileChooser({ timeout = DEFAULT_TIMEOUT } = {}) {
+    await this._session(); // ensures interception is enabled before the click
+    return withTimeout(new Promise((r) => this._chooserWaiters.push(r)), timeout, 'waitForFileChooser');
   }
 
   events() {
