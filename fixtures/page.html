@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ego Fixture</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; }
+  .hidden { display: none; }
+  #log { white-space: pre-wrap; border: 1px solid #999; padding: .5rem; min-height: 3rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1 id="headline">Fixture Home</h1>
+<nav>
+  <a href="#about" id="nav-about">About</a>
+  <a href="page2.html" id="nav-next">Next page</a>
+</nav>
+
+<form id="login" onsubmit="return false">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" placeholder="you@example.com">
+  <label for="pw">Password</label>
+  <input id="pw" name="pw" type="password">
+  <label for="plan">Plan</label>
+  <select id="plan" name="plan">
+    <option value="free">Free</option>
+    <option value="pro">Pro</option>
+  </select>
+  <button id="submit" type="button">Sign in</button>
+</form>
+
+<button id="counter" type="button">Count: 0</button>
+<input id="hidden-input" class="hidden" value="ghost">
+<button id="disabled-btn" disabled>Disabled</button>
+<canvas id="pad" width="120" height="60"></canvas>
+
+<div id="shadow-host"></div>
+
+<iframe id="inner" src="iframe.html" title="Inner frame" width="400" height="160"></iframe>
+
+<div id="log" aria-live="polite"></div>
+
+<script>
+  const log = (m) => { document.getElementById('log').textContent += m + '\n'; };
+  let n = 0;
+  document.getElementById('counter').addEventListener('click', () => {
+    n += 1;
+    document.getElementById('counter').textContent = 'Count: ' + n;
+    log('counter=' + n);
+  });
+  document.getElementById('submit').addEventListener('click', () => {
+    const email = document.getElementById('email').value;
+    log('submitted email=' + email + ' plan=' + document.getElementById('plan').value);
+    document.getElementById('headline').textContent = 'Welcome ' + email;
+  });
+  const host = document.getElementById('shadow-host');
+  const root = host.attachShadow({ mode: 'open' });
+  const b = document.createElement('button');
+  b.textContent = 'Shadow action';
+  b.addEventListener('click', () => log('shadow-clicked'));
+  root.appendChild(b);
+  window.__fixture = { log };
+</script>
+</body>
+</html>

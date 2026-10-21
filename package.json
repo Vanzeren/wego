@@ -1,0 +1,16 @@
+{
+  "name": "ego-lite-linux",
+  "version": "0.1.0",
+  "description": "ego-lite style agent-browser for Linux: Electron shell + native bridge + ego-browser SDK",
+  "type": "module",
+  "main": "src/browser/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "cli": "node bin/ego-browser",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "bin": {
+    "ego-browser": "bin/ego-browser"
+  }
+}

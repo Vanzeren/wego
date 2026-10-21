@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ego-lite</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #202124; color: #e8eaed;
+    font: 13px/1.4 system-ui, sans-serif; user-select: none; }
+  /* Chrome total height must stay 84px (44 nav row + 40 tab strip). */
+  #navbar { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; }
+  #navbar button { width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent;
+    color: #e8eaed; font-size: 15px; cursor: pointer; }
+  #navbar button:hover { background: #3c4043; }
+  #omnibox { flex: 1; height: 30px; border: 0; border-radius: 15px; background: #303134;
+    color: #e8eaed; padding: 0 14px; outline: none; }
+  #omnibox:focus { background: #fff; color: #202124; }
+  #tabstrip { display: flex; align-items: flex-end; gap: 2px; height: 40px; padding: 0 8px;
+    overflow-x: auto; }
+  .tab { display: flex; align-items: center; gap: 6px; max-width: 200px; min-width: 80px;
+    height: 32px; padding: 0 10px; border-radius: 8px 8px 0 0; background: #303134;
+    color: #bdc1c6; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab.active { background: #3c4043; color: #e8eaed; }
+  .tab .close { margin-left: auto; padding: 0 3px; border-radius: 50%; }
+  .tab .close:hover { background: #5f6368; }
+  #newtab { height: 26px; width: 26px; border: 0; border-radius: 50%; background: transparent;
+    color: #e8eaed; font-size: 16px; cursor: pointer; margin-bottom: 3px; }
+  #newtab:hover { background: #3c4043; }
+  #sidebar { position: fixed; left: 0; top: 84px; bottom: 0; width: 200px; overflow-y: auto;
+    border-right: 1px solid #3c4043; padding: 8px; }
+  #sidebar h2 { font-size: 11px; text-transform: uppercase; color: #9aa0a6; margin: 4px 4px 8px; }
+  .space { border-radius: 8px; padding: 8px 10px; cursor: pointer; margin-bottom: 4px; }
+  .space:hover { background: #2b2c2e; }
+  .space.active { background: #3c4043; }
+  .space .row { display: flex; align-items: center; gap: 6px; }
+  .space .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 8px; }
+  .badge.user { background: #1b3a29; color: #81c995; }
+  .badge.agent { background: #3a2e5c; color: #c4a7ff; }
+  .space .control, .space .agentstate { font-size: 11px; color: #9aa0a6; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #banner { display: none; position: fixed; left: 200px; right: 0; top: 84px; height: 32px;
+    align-items: center; gap: 10px; padding: 0 14px; background: #3a2e5c; color: #e8e0ff; z-index: 10; }
+  #banner button { border: 1px solid #c4a7ff; background: transparent; color: #c4a7ff;
+    border-radius: 12px; padding: 2px 12px; cursor: pointer; }
+  #handback { display: none; position: fixed; right: 10px; top: 90px; z-index: 10;
+    border: 1px solid #5f6368; background: rgba(32,33,36,.85); color: #9aa0a6;
+    border-radius: 12px; padding: 3px 12px; cursor: pointer; font-size: 12px; }
+  #overlay { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+  .ring { position: absolute; width: 24px; height: 24px; border: 3px solid #8ab4f8;
+    border-radius: 50%; animation: ringfade .6s ease-out forwards; }
+  @keyframes ringfade {
+    from { opacity: 1; transform: scale(.6); }
+    to { opacity: 0; transform: scale(1.4); }
+  }
+</style>
+</head>
+<body>
+  <div id="navbar">
+    <button id="back" title="Back">&#8592;</button>
+    <button id="forward" title="Forward">&#8594;</button>
+    <button id="reload" title="Reload">&#8635;</button>
+    <input id="omnibox" type="text" placeholder="Search or enter address" spellcheck="false">
+  </div>
+  <div id="tabstrip"></div>
+  <div id="sidebar"><h2>Spaces</h2><div id="spaces"></div></div>
+  <div id="banner"><span>Agent is working in this space</span><button id="takeover">Take over</button></div>
+  <button id="handback">Hand back to agent</button>
+  <div id="overlay"></div>
+  <script src="ui.js"></script>
+</body>
+</html>

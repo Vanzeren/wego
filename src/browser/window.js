@@ -1,0 +1,193 @@
+import { BrowserWindow, WebContentsView, ipcMain } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { SpaceManager } from './spaces.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Keep in sync with renderer/ui.js layout constants.
+const CHROME_HEIGHT = 84;
+const SIDEBAR_WIDTH = 200;
+const PARTITION = 'persist:default'; // shared by all spaces so logins carry over (ego parity)
+
+function normalizeUrl(input) {
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) return input;
+  return `https://${input}`;
+}
+
+export function createMainWindow({ httpEndpoint } = {}) {
+  // Resolve the real Chromium CDP targetId for a freshly created WebContentsView
+  // by loading a unique marker URL and matching it in the DevTools target list.
+  async function resolveCdpTargetId(marker, wc) {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if (wc.isDestroyed()) throw new Error('webContents destroyed');
+      try {
+        const res = await fetch(`${httpEndpoint}/json/list`);
+        const targets = await res.json();
+        const hit = targets.find((t) => t.url === marker);
+        if (hit) return hit.id;
+      } catch { /* endpoint briefly unavailable */ }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`CDP targetId resolution timed out for ${marker}`);
+  }
+
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    backgroundColor: '#202124',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'renderer', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  // Every tab view stays attached at FULL visible bounds; the active tab is
+  // raised to the top of the z-order and is opaque, so it fully covers the
+  // rest. Chromium clips native child views to the parent bounds, so parking
+  // views offscreen would collapse their layout viewport to 0x0 and break
+  // getBoundingClientRect/CDP Input for background agent tabs.
+  let currentTop = null;
+
+  function wireTabView(space, tab, view) {
+    const wc = view.webContents;
+    // Popups (window.open / target=_blank) become tabs in the same space.
+    wc.setWindowOpenHandler(({ url }) => {
+      spaces.addUserTab(space.id, url || 'about:blank');
+      return { action: 'deny' };
+    });
+    wc.on('did-navigate', (_e, url) => { if (!url.startsWith('about:blank#ego-')) spaces.noteUrl(space.id, tab.targetId, url); });
+    wc.on('did-navigate-in-page', (_e, url) => { if (!url.startsWith('about:blank#ego-')) spaces.noteUrl(space.id, tab.targetId, url); });
+    wc.on('page-title-updated', (_e, title) => spaces.noteTitle(space.id, tab.targetId, title));
+  }
+
+  const spaces = new SpaceManager({
+    createView(space, tab) {
+      const view = new WebContentsView({
+        webPreferences: { partition: PARTITION, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+      });
+      wireTabView(space, tab, view);
+      view.setBackgroundColor('#ffffff');
+      win.contentView.addChildView(view);
+      view.setBounds({ x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 });
+      const wc = view.webContents;
+      const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : 'about:blank';
+      const marker = `about:blank#ego-${space.id}-${tab.targetId}`;
+      tab.targetIdReady = (async () => {
+        await wc.loadURL(marker);
+        const realId = await resolveCdpTargetId(marker, wc);
+        spaces.noteTargetId(space.id, tab.targetId, realId);
+        return realId;
+      })();
+      // The real URL loads only after the marker round-trip so the target
+      // list match above cannot race it away.
+      tab.targetIdReady.then(() => {
+        if (wc.isDestroyed()) return;
+        wc.loadURL(intended).catch(() => {});
+      }).catch(() => {});
+      return view;
+    },
+    destroyView(space, tab) {
+      try { win.contentView.removeChildView(tab.view); } catch { /* not attached */ }
+      try { tab.view?.webContents.close(); } catch { /* already destroyed */ }
+    },
+  });
+
+  function layoutViews() {
+    if (win.isDestroyed()) return;
+    const [w, h] = win.getContentSize();
+    const bounds = {
+      x: SIDEBAR_WIDTH,
+      y: CHROME_HEIGHT,
+      width: Math.max(0, w - SIDEBAR_WIDTH),
+      height: Math.max(0, h - CHROME_HEIGHT),
+    };
+    for (const space of spaces.allSpaces()) {
+      for (const tab of space.tabs) {
+        try { tab.view?.setBounds(bounds); } catch { /* destroyed */ }
+      }
+    }
+    const active = spaces.getActive();
+    const top = active?.tabs.find((t) => t.targetId === active.activeTargetId)?.view ?? null;
+    if (top && top !== currentTop) {
+      currentTop = top;
+      try {
+        win.contentView.removeChildView(top); // re-add => top of z-order
+        win.contentView.addChildView(top);
+      } catch { /* view race */ }
+    }
+  }
+
+  function pushState() {
+    if (!win.isDestroyed()) win.webContents.send('state', spaces.serializeAll());
+  }
+
+  spaces.on('spaceChanged', () => { layoutViews(); pushState(); });
+  spaces.on('taskState', () => pushState());
+  win.on('resize', layoutViews);
+
+  // User gestures mutate the active space directly and are only honored while
+  // control === 'user'; agent control transitions go through SpaceManager.
+  ipcMain.handle('ui:action', (_e, msg) => {
+    const { type } = msg ?? {};
+    const space = spaces.getActive();
+    const activeWc = () => {
+      const tab = space?.tabs.find((t) => t.targetId === space.activeTargetId);
+      const wc = tab?.view?.webContents;
+      return wc && !wc.isDestroyed() ? wc : null;
+    };
+    const userEditable = !!space && space.control === 'user';
+    switch (type) {
+      case 'back': if (userEditable) activeWc()?.navigationHistory.goBack(); break;
+      case 'forward': if (userEditable) activeWc()?.navigationHistory.goForward(); break;
+      case 'reload': if (userEditable) activeWc()?.reload(); break;
+      case 'navigate':
+        if (userEditable && typeof msg.url === 'string' && msg.url) {
+          activeWc()?.loadURL(normalizeUrl(msg.url)).catch(() => {});
+        }
+        break;
+      case 'newTab':
+        if (userEditable) spaces.addUserTab(space.id, typeof msg.url === 'string' && msg.url ? msg.url : 'about:blank');
+        break;
+      case 'closeTab':
+        if (userEditable && typeof msg.targetId === 'string') spaces.closeUserTab(space.id, msg.targetId);
+        break;
+      case 'activateTab':
+        if (userEditable && typeof msg.targetId === 'string') spaces.activateUserTab(space.id, msg.targetId);
+        break;
+      case 'switchSpace':
+        if (typeof msg.id === 'number' && spaces.getSpace(msg.id)) spaces.setActiveSpace(msg.id);
+        break;
+      case 'takeover': if (space) spaces.handOffTaskSpace({ id: space.id }); break;
+      case 'handback': if (space) spaces.takeOverTaskSpace({ id: space.id }); break;
+    }
+    pushState();
+  });
+
+  const personal = spaces.createPersonalSpace();
+  spaces.addUserTab(personal.id, 'about:blank');
+
+  win.webContents.on('did-finish-load', pushState);
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  win.setPosition(120, 80);
+  win.show();
+  layoutViews();
+
+  return {
+    win,
+    spaces,
+    focus() {
+      if (win.isDestroyed()) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    },
+    sendHighlight({ x, y }) {
+      if (!win.isDestroyed()) win.webContents.send('highlight', { x, y });
+    },
+  };
+}

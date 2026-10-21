@@ -1,0 +1,695 @@
+// Page: the v2 SDK page surface. Wraps one tab (CDP target) of a task space.
+// All waits/actions go through the page's flatten CDP session (cdp.js);
+// '@N' refs resolve via refs.js, selectors via selectors.js.
+
+import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+import { populate as populateRefs } from './refs.js';
+import { resolveTarget } from './selectors.js';
+import { parseKeySpec, keyDown, keyUp, pressKey, typeText, mouseEvent, MOUSE_BUTTONS } from './input.js';
+import { CDPError } from './cdp.js';
+
+const DEFAULT_TIMEOUT = 30_000;
+
+function timeoutError(what, ms) {
+  return new CDPError(`Timeout ${ms}ms exceeded: ${what}`, 'EGO_OPERATION_FAILED');
+}
+
+function poll(fn, { interval = 100 } = {}) {
+  return new Promise((resolve) => {
+    const tick = async () => {
+      let v;
+      try { v = await fn(); } catch { v = undefined; }
+      if (v) return resolve(v);
+      setTimeout(tick, interval);
+    };
+    tick();
+  });
+}
+
+function withTimeout(promise, ms, what) {
+  let timer;
+  const t = new Promise((_, reject) => { timer = setTimeout(() => reject(timeoutError(what, ms)), ms); });
+  return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+}
+
+// ---------------------------------------------------------------- downloads
+
+class Download {
+  constructor(page, guid, url, suggestedFilename) {
+    this._page = page;
+    this._guid = guid;
+    this._url = url;
+    this._suggested = suggestedFilename;
+    this._path = null;
+    this._done = new Promise((resolve) => { this._resolveDone = resolve; });
+  }
+  url() { return this._url; }
+  suggestedFilename() { return this._suggested; }
+  path() { return this._path; }
+  async saveAs(absPath) {
+    if (!path.isAbsolute(absPath)) throw Object.assign(new Error('saveAs path must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    await this._done;
+    await fs.promises.mkdir(path.dirname(absPath), { recursive: true });
+    await fs.promises.copyFile(this._path, absPath);
+    return absPath;
+  }
+  async cancel() {
+    await this._page._session().then((s) => s.send('Browser.cancelDownload', { guid: this._guid })).catch(() => {});
+  }
+}
+
+// ---------------------------------------------------------------- Page
+
+export class Page {
+  constructor(space, label, targetId, openedBy) {
+    this.space = space;
+    this.label = label;
+    this.spaceId = space.spaceId;
+    this.targetId = targetId;
+    this.openedBy = openedBy;
+
+    this._sessionPromise = null;
+    this._eventBuffer = []; // CDP event summaries, cap 10k
+    this._dialog = null; // current JS dialog {type, message}
+    this._popups = []; // observed popup targets in this space
+    this._downloadWaiters = [];
+    this._activeDownloads = new Map();
+    this._popupWaiters = [];
+    this._networkInFlight = 0;
+    this._lastNetworkActivity = 0;
+    this._mousePos = { x: 0, y: 0 };
+
+    // bound snapshot with .raw variant
+    this.snapshot = this.snapshot.bind(this);
+    this.snapshot.raw = this._snapshotRaw.bind(this);
+  }
+
+  _ctx() { return this.space._ctx; }
+
+  async _session() {
+    if (!this._sessionPromise) {
+      this._sessionPromise = (async () => {
+        const session = await this._ctx().cdp.attach(this.targetId);
+        await session.send('Page.enable');
+        await session.send('Runtime.enable').catch(() => {});
+        await session.send('Network.enable').catch(() => {});
+
+        session.on('Page.javascriptDialogOpening', (p) => {
+          this._dialog = { type: p.type, message: p.message };
+          this._recordEvent('Page.javascriptDialogOpening', p);
+        });
+        session.on('Page.javascriptDialogClosed', () => { this._dialog = null; });
+
+        session.on('Network.requestWillBeSent', () => { this._networkInFlight++; this._lastNetworkActivity = Date.now(); });
+        session.on('Network.loadingFinished', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
+        session.on('Network.loadingFailed', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
+
+        // download events arrive on the page session after setDownloadBehavior
+        session.on('Browser.downloadWillBegin', (p) => {
+          const dl = new Download(this, p.guid, p.url, p.suggestedFilename);
+          this._activeDownloads.set(p.guid, dl);
+          this._recordEvent('Browser.downloadWillBegin', p);
+          const waiters = this._downloadWaiters.splice(0);
+          for (const w of waiters) w(dl);
+        });
+        session.on('Browser.downloadProgress', (p) => {
+          const dl = this._activeDownloads.get(p.guid);
+          if (dl && p.state === 'completed') dl._resolveDone();
+          if (dl && p.state === 'canceled') dl._resolveDone();
+        });
+
+        // buffer remaining events as summaries
+        for (const m of ['Page.loadEventFired', 'Page.domContentEventFired', 'Page.frameNavigated', 'Console.messageAdded']) {
+          session.on(m, (p) => this._recordEvent(m, p));
+        }
+        return session;
+      })();
+    }
+    return this._sessionPromise;
+  }
+
+  _recordEvent(method, params) {
+    if (this._eventBuffer.length >= 10_000) this._eventBuffer.shift();
+    let summary;
+    try { summary = JSON.stringify(params); } catch { summary = ''; }
+    if (summary && summary.length > 200) summary = summary.slice(0, 200) + '…';
+    this._eventBuffer.push({ method, summary });
+  }
+
+  // popup observation: browser-level Target.targetCreated, filtered to this space
+  _watchPopups() {
+    if (this._popupWatch) return;
+    this._popupWatch = this._ctx().cdp.browser.on('Target.targetCreated', async (p) => {
+      const info = p.targetInfo;
+      if (!info || info.type !== 'page') return;
+      if (!this.space._ownsTarget(info.targetId)) return;
+      const label = this.space._labelForTarget(info.targetId);
+      this._popups.push({ label, targetId: info.targetId });
+      const waiters = this._popupWaiters.splice(0);
+      for (const w of waiters) w({ label, targetId: info.targetId });
+    });
+  }
+
+  // ---- info ----
+
+  async url() {
+    const session = await this._session();
+    const { result } = await session.send('Runtime.evaluate', { expression: 'location.href', returnByValue: true });
+    return result.value;
+  }
+
+  async title() {
+    const session = await this._session();
+    const { result } = await session.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true });
+    return result.value;
+  }
+
+  async info() {
+    const [url, title] = await Promise.all([this.url(), this.title()]);
+    return { url, title, ...(this._dialog ? { dialog: this._dialog } : {}) };
+  }
+
+  // ---- navigation / waits ----
+
+  async goto(url, { timeout = DEFAULT_TIMEOUT, waitUntil = 'load' } = {}) {
+    const session = await this._session();
+    await session.send('Page.navigate', { url }, { timeout });
+    await this.waitForLoadState(waitUntil, { timeout });
+  }
+
+  async reload({ timeout = DEFAULT_TIMEOUT } = {}) {
+    const session = await this._session();
+    await session.send('Page.reload', {});
+    await this.waitForLoadState('load', { timeout });
+  }
+
+  async waitForURL(target, { timeout = DEFAULT_TIMEOUT } = {}) {
+    const match = typeof target === 'string'
+      ? (u) => u === target || u.includes(target)
+      : target instanceof RegExp
+        ? (u) => target.test(u)
+        : typeof target === 'function'
+          ? (u) => !!target(u)
+          : null;
+    if (!match) throw Object.assign(new TypeError('waitForURL expects string | RegExp | function'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    const session = await this._session();
+    await withTimeout(
+      poll(async () => {
+        const { result } = await session.send('Runtime.evaluate', { expression: 'location.href', returnByValue: true });
+        return match(result.value) ? result.value : undefined;
+      }),
+      timeout, `waitForURL(${target})`,
+    );
+  }
+
+  async waitForLoadState(state = 'load', { timeout = DEFAULT_TIMEOUT } = {}) {
+    const session = await this._session();
+    const readyStateWanted = { load: 'complete', domcontentloaded: 'interactive', networkidle: null }[state];
+    if (readyStateWanted === undefined && state !== 'networkidle') {
+      throw Object.assign(new TypeError(`waitForLoadState: unknown state ${state}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+    }
+    if (state === 'networkidle') {
+      await withTimeout(
+        poll(() => (this._networkInFlight === 0 && Date.now() - this._lastNetworkActivity >= 500 ? true : undefined)),
+        timeout, 'waitForLoadState(networkidle)',
+      );
+      return;
+    }
+    await withTimeout(
+      poll(async () => {
+        const { result } = await session.send('Runtime.evaluate', { expression: 'document.readyState', returnByValue: true });
+        const ok = state === 'load' ? result.value === 'complete' : result.value === 'interactive' || result.value === 'complete';
+        return ok ? true : undefined;
+      }),
+      timeout, `waitForLoadState(${state})`,
+    );
+  }
+
+  async waitForSelector(target, { state = 'visible', timeout = DEFAULT_TIMEOUT } = {}) {
+    if (!['visible', 'attached', 'hidden'].includes(state)) {
+      throw Object.assign(new TypeError(`waitForSelector: unknown state ${state}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+    }
+    await withTimeout(
+      poll(async () => {
+        try {
+          await resolveTarget(this, target, { checkActionable: state === 'visible' });
+          return state === 'hidden' ? undefined : true;
+        } catch (e) {
+          if (e.kind === 'not_found' || e.kind === 'stale') return state === 'hidden' ? true : undefined;
+          if (e.kind === 'not_actionable') return undefined;
+          return undefined;
+        }
+      }),
+      timeout, `waitForSelector(${target}, ${state})`,
+    );
+  }
+
+  async waitForFunction(fn, arg, { timeout = DEFAULT_TIMEOUT } = {}) {
+    const session = await this._session();
+    const source = typeof fn === 'function' ? fn.toString() : String(fn);
+    await withTimeout(
+      poll(async () => {
+        const { result } = await session.send('Runtime.evaluate', {
+          expression: `Promise.resolve((${source})(${JSON.stringify(arg)})).then(v => v ? true : undefined, () => undefined)`,
+          awaitPromise: true,
+          returnByValue: true,
+        });
+        return result.value;
+      }),
+      timeout, 'waitForFunction',
+    );
+  }
+
+  waitForTimeout(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  async waitForEvent(name, { timeout = DEFAULT_TIMEOUT } = {}) {
+    if (name === 'popup') {
+      this._watchPopups();
+      return withTimeout(new Promise((r) => this._popupWaiters.push(r)), timeout, "waitForEvent('popup')");
+    }
+    if (name === 'download') {
+      const session = await this._session();
+      const dir = path.join(os.tmpdir(), 'ego-downloads');
+      await fs.promises.mkdir(dir, { recursive: true });
+      await session.send('Browser.setDownloadBehavior', {
+        behavior: 'allow', downloadPath: dir, eventsEnabled: true,
+      }).catch(async () => {
+        await session.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dir }).catch(() => {});
+      });
+      const dl = await withTimeout(new Promise((r) => this._downloadWaiters.push(r)), timeout, "waitForEvent('download')");
+      dl._path = path.join(dir, dl._guid);
+      return dl;
+    }
+    throw Object.assign(new TypeError(`waitForEvent: unknown event ${name}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+  }
+
+  events() {
+    const out = this._eventBuffer;
+    this._eventBuffer = [];
+    return out;
+  }
+
+  // ---- snapshot ----
+
+  async snapshot(options) {
+    const ego = this._ctx().ego;
+    ego.useTaskSpace(this.spaceId);
+    const { content, refs } = await ego._call('snapshot', { id: this.spaceId, targetId: this.targetId, ...(options ? { options } : {}) });
+    const fullPage = !options || !options.scope || options.scope === 'full_page';
+    populateRefs(this, refs, { fullPage });
+    return content;
+  }
+  // raw form: { content, refs }
+  async _snapshotRaw(options) {
+    const ego = this._ctx().ego;
+    ego.useTaskSpace(this.spaceId);
+    const result = await ego._call('snapshot', { id: this.spaceId, targetId: this.targetId, ...(options ? { options } : {}) });
+    const fullPage = !options || !options.scope || options.scope === 'full_page';
+    populateRefs(this, result.refs, { fullPage });
+    return result;
+  }
+
+  // ---- element mechanics ----
+
+  async _quads(objectId) {
+    const session = await this._session();
+    try {
+      const { quads } = await session.send('DOM.getContentQuads', { objectId });
+      if (quads && quads.length) return quads;
+    } catch { /* fall through */ }
+    const { result } = await session.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: 'function(){ const r = this.getBoundingClientRect(); return [r.left, r.top, r.right, r.top, r.right, r.bottom, r.left, r.bottom]; }',
+      returnByValue: true,
+    });
+    return result.value ? [result.value] : [];
+  }
+
+  static _quadCenter(quad) {
+    // quad: [x1,y1, x2,y2, x3,y3, x4,y4]
+    const xs = [quad[0], quad[2], quad[4], quad[6]];
+    const ys = [quad[1], quad[3], quad[5], quad[7]];
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  }
+
+  async _scrollIntoView(objectId) {
+    const session = await this._session();
+    try {
+      await session.send('DOM.scrollIntoViewIfNeeded', { objectId });
+      return;
+    } catch { /* fallback below */ }
+    await session.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: 'function(){ this.scrollIntoView({block:"center", inline:"center"}); }',
+    }).catch(() => {});
+  }
+
+  async _pointFor(target, { checkActionable = true } = {}) {
+    const { objectId } = await resolveTarget(this, target, { checkActionable });
+    await this._scrollIntoView(objectId);
+    const quads = await this._quads(objectId);
+    if (!quads.length) {
+      throw Object.assign(new Error(`Element has no clickable point: ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
+    }
+    return { objectId, point: Page._quadCenter(quads[0]) };
+  }
+
+  // receipt: popups/dialog observed within 500ms after dispatch
+  async _receipt() {
+    const beforePopups = this._popups.length;
+    const dialogSeen = this._dialog ? this._dialog : null;
+    const deadline = Date.now() + 500;
+    while (Date.now() < deadline) {
+      if (this._dialog || this._popups.length > beforePopups) break;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    const receipt = { ok: true };
+    const popups = this._popups.splice(beforePopups);
+    if (popups.length) receipt.popups = popups;
+    const dialog = this._dialog || dialogSeen;
+    if (dialog) receipt.dialog = dialog;
+    return receipt;
+  }
+
+  async _dispatchClick(point, { clickCount = 1 } = {}) {
+    const session = await this._session();
+    this._watchPopups();
+    this._mousePos = { x: point.x, y: point.y };
+    await mouseEvent(session, 'mouseMoved', point.x, point.y);
+    await mouseEvent(session, 'mousePressed', point.x, point.y, { button: 'left', buttons: MOUSE_BUTTONS.left, clickCount });
+    await mouseEvent(session, 'mouseReleased', point.x, point.y, { button: 'left', buttons: 0, clickCount });
+  }
+
+  // ---- actions ----
+
+  async click(target, { label } = {}) {
+    void label;
+    const { point } = await this._pointFor(target);
+    await this._dispatchClick(point, { clickCount: 1 });
+    return this._receipt();
+  }
+
+  async dblclick(target, { label } = {}) {
+    void label;
+    const { point } = await this._pointFor(target);
+    await this._dispatchClick(point, { clickCount: 2 });
+    return this._receipt();
+  }
+
+  async hover(target, { label } = {}) {
+    void label;
+    // hover may target disabled elements
+    const { point } = await this._pointFor(target, { checkActionable: false });
+    const session = await this._session();
+    await mouseEvent(session, 'mouseMoved', point.x, point.y);
+    return this._receipt();
+  }
+
+  async dragAndDrop(source, destination, { label } = {}) {
+    void label;
+    const src = await this._pointFor(source, { checkActionable: false });
+    const dst = await this._pointFor(destination, { checkActionable: false });
+    const session = await this._session();
+    await mouseEvent(session, 'mouseMoved', src.point.x, src.point.y);
+    await mouseEvent(session, 'mousePressed', src.point.x, src.point.y, { button: 'left', buttons: MOUSE_BUTTONS.left, clickCount: 1 });
+    await mouseEvent(session, 'mouseMoved', dst.point.x, dst.point.y, { button: 'left', buttons: MOUSE_BUTTONS.left });
+    await mouseEvent(session, 'mouseReleased', dst.point.x, dst.point.y, { button: 'left', buttons: 0, clickCount: 1 });
+    return this._receipt();
+  }
+
+  async fill(target, text) {
+    const { objectId } = await resolveTarget(this, target, { checkActionable: true });
+    await this._scrollIntoView(objectId);
+    const session = await this._session();
+    // focus + select-all existing value in-page
+    await session.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function(){
+        this.focus();
+        if (this.select) { try { this.select(); } catch {} }
+        else if (this.isContentEditable) {
+          const r = this.ownerDocument.createRange();
+          r.selectNodeContents(this);
+          const s = this.ownerDocument.defaultView.getSelection();
+          s.removeAllRanges(); s.addRange(r);
+        }
+      }`,
+    });
+    const before = await session.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: 'function(){ return "value" in this ? this.value : this.textContent; }',
+      returnByValue: true,
+    });
+    await session.send('Input.insertText', { text: String(text) });
+    // ensure input/change fired
+    const after = await session.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function(){
+        const v = "value" in this ? this.value : this.textContent;
+        return v;
+      }`,
+      returnByValue: true,
+    });
+    if (after.result.value !== String(text)) {
+      await session.send('Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: `function(v){
+          if ("value" in this) this.value = v; else this.textContent = v;
+          this.dispatchEvent(new Event('input', { bubbles: true }));
+          this.dispatchEvent(new Event('change', { bubbles: true }));
+        }`,
+        arguments: [{ value: String(text) }],
+      });
+      const verify = await session.send('Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: 'function(){ return "value" in this ? this.value : this.textContent; }',
+        returnByValue: true,
+      });
+      if (verify.result.value !== String(text)) {
+        throw new CDPError(`fill failed: element value did not update (before=${JSON.stringify(before.result.value)})`, 'EGO_OPERATION_FAILED');
+      }
+    }
+    return this._receipt();
+  }
+
+  async selectOption(target, values) {
+    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
+    const session = await this._session();
+    if (values === null) {
+      await session.send('Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: `function(){ for (const o of this.options) o.selected = false; this.dispatchEvent(new Event('input',{bubbles:true})); this.dispatchEvent(new Event('change',{bubbles:true})); }`,
+      });
+      return this._receipt();
+    }
+    const list = Array.isArray(values) ? values : [values];
+    const { result } = await session.send('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function(specs){
+        const picked = [];
+        for (const spec of specs) {
+          let found = null;
+          for (const o of this.options) {
+            if ('label' in spec && o.label === spec.label) found = o;
+            else if ('index' in spec && o.index === spec.index) found = o;
+            else if (typeof spec === 'string' && o.value === spec) found = o;
+            if (found) break;
+          }
+          if (!found) return { error: 'option_not_found' };
+          found.selected = true;
+          picked.push(found.value);
+        }
+        this.dispatchEvent(new Event('input', { bubbles: true }));
+        this.dispatchEvent(new Event('change', { bubbles: true }));
+        return { picked };
+      }`,
+      arguments: [{ value: list.map((v) => (typeof v === 'string' ? v : v)) }],
+      returnByValue: true,
+    });
+    if (result.value?.error) throw new CDPError(`selectOption: option not found in ${target}`, 'EGO_OPERATION_FAILED');
+    return this._receipt();
+  }
+
+  async focus(target) {
+    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
+    const session = await this._session();
+    await session.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){ this.focus(); }' });
+    return this._receipt();
+  }
+
+  async press(target, key) {
+    if (key === undefined) { key = target; target = null; } // press(key) convenience? keep strict: (target,key)
+    if (target == null) throw Object.assign(new TypeError('press(target, key) requires a target'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
+    const session = await this._session();
+    await session.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){ this.focus(); }' });
+    await pressKey(session, key);
+    return this._receipt();
+  }
+
+  async setInputFiles(target, absPaths) {
+    const paths = Array.isArray(absPaths) ? absPaths : [absPaths];
+    for (const p of paths) {
+      if (!path.isAbsolute(p)) throw Object.assign(new TypeError('setInputFiles paths must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    }
+    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
+    const session = await this._session();
+    const { node } = await session.send('DOM.describeNode', { objectId });
+    await session.send('DOM.setFileInputFiles', { files: paths, nodeId: node.nodeId }).catch(async () => {
+      const { node: n2 } = await session.send('DOM.describeNode', { objectId });
+      await session.send('DOM.setFileInputFiles', { files: paths, backendNodeId: n2.backendNodeId });
+    });
+    return this._receipt();
+  }
+
+  // ---- dialogs ----
+
+  async acceptDialog(promptText) {
+    const session = await this._session();
+    await session.send('Page.handleJavaScriptDialog', {
+      accept: true,
+      ...(promptText !== undefined ? { promptText: String(promptText) } : {}),
+    });
+    this._dialog = null;
+  }
+
+  async dismissDialog() {
+    const session = await this._session();
+    await session.send('Page.handleJavaScriptDialog', { accept: false });
+    this._dialog = null;
+  }
+
+  // ---- evaluate / fetch / screenshot / cdp ----
+
+  async evaluate(fnOrString, arg) {
+    const session = await this._session();
+    const source = typeof fnOrString === 'function' ? fnOrString.toString() : String(fnOrString);
+    const isFunc = typeof fnOrString === 'function' || /^\s*(async\s*)?(\(|\w+\s*=>|function)/.test(source);
+    const expression = isFunc
+      ? `(${source})(${JSON.stringify(arg)})`
+      : source;
+    const { result, exceptionDetails } = await session.send('Runtime.evaluate', {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (exceptionDetails) {
+      const msg = exceptionDetails.exception?.description || exceptionDetails.text;
+      throw new CDPError(`evaluate failed: ${msg}`, 'EGO_OPERATION_FAILED');
+    }
+    return result.value;
+  }
+
+  async fetch(url, options = {}) {
+    const { saveAs, ...fetchOpts } = options || {};
+    const session = await this._session();
+    const { result, exceptionDetails } = await session.send('Runtime.evaluate', {
+      expression: `(async () => {
+        const res = await window.fetch(${JSON.stringify(url)}, ${JSON.stringify(fetchOpts)});
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        const CH = 0x8000;
+        for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+        const headers = {};
+        res.headers.forEach((v, k) => { headers[k] = v; });
+        return { ok: res.ok, status: res.status, statusText: res.statusText, url: res.url, headers, body: btoa(bin) };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (exceptionDetails) throw new CDPError(`fetch failed: ${exceptionDetails.text}`, 'EGO_OPERATION_FAILED');
+    const out = result.value;
+    const bodyBuf = Buffer.from(out.body, 'base64');
+    if (saveAs !== undefined) {
+      if (!path.isAbsolute(saveAs)) throw Object.assign(new TypeError('fetch saveAs must be an absolute path'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      await fs.promises.mkdir(path.dirname(saveAs), { recursive: true });
+      await fs.promises.writeFile(saveAs, bodyBuf);
+    }
+    return { ok: out.ok, status: out.status, statusText: out.statusText, url: out.url, headers: out.headers, body: bodyBuf.toString('utf8') };
+  }
+
+  async cdp(method, params = {}) {
+    const session = await this._session();
+    return session.send(method, params);
+  }
+
+  async screenshot({ path: outPath } = {}) {
+    const session = await this._session();
+    if (outPath !== undefined && !path.isAbsolute(outPath)) {
+      throw Object.assign(new TypeError('screenshot path must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    }
+    const finalPath = outPath || path.join(os.tmpdir(), `ego-shot-${crypto.randomBytes(6).toString('hex')}.png`);
+    await fs.promises.mkdir(path.dirname(finalPath), { recursive: true });
+    const { data } = await session.send('Page.captureScreenshot', { format: 'png' });
+    await fs.promises.writeFile(finalPath, Buffer.from(data, 'base64'));
+    return finalPath;
+  }
+
+  async close() {
+    const ego = this._ctx().ego;
+    ego.useTaskSpace(this.spaceId);
+    await ego._call('closeTab', { id: this.spaceId, targetId: this.targetId });
+    this.space._removePage(this.label);
+  }
+
+  // ---- mouse / keyboard namespaces ----
+
+  get mouse() {
+    const page = this;
+    return {
+      async click(x, y, { label } = {}) {
+        void label;
+        page._watchPopups();
+        await page._dispatchClick({ x, y }, { clickCount: 1 });
+        return page._receipt();
+      },
+      async move(x, y, { label } = {}) {
+        void label;
+        const session = await page._session();
+        page._mousePos = { x, y };
+        await mouseEvent(session, 'mouseMoved', x, y);
+      },
+      async down({ button = 'left' } = {}) {
+        const session = await page._session();
+        const { x, y } = page._mousePos;
+        await mouseEvent(session, 'mousePressed', x, y, { button, buttons: MOUSE_BUTTONS[button] || 1, clickCount: 1 });
+      },
+      async up({ button = 'left' } = {}) {
+        const session = await page._session();
+        const { x, y } = page._mousePos;
+        await mouseEvent(session, 'mouseReleased', x, y, { button, buttons: 0, clickCount: 1 });
+      },
+      async wheel(dx, dy, { label } = {}) {
+        void label;
+        const session = await page._session();
+        const { x, y } = page._mousePos;
+        await session.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: dx, deltaY: dy });
+      },
+    };
+  }
+
+  get keyboard() {
+    const page = this;
+    return {
+      async down(key) { await keyDown(await page._session(), parseKeySpec(key)); },
+      async up(key) { await keyUp(await page._session(), parseKeySpec(key)); },
+      async press(key) { await pressKey(await page._session(), key); },
+      async type(text, { delay = 0 } = {}) { await typeText(await page._session(), String(text), { delay }); },
+      async insertText(text) { await (await page._session()).send('Input.insertText', { text: String(text) }); },
+      async paste({ text, html } = {}) {
+        if (html !== undefined) {
+          throw new CDPError('keyboard.paste({html}) is unsupported on Linux (no clipboard write via page session)', 'EGO_OPERATION_FAILED');
+        }
+        if (typeof text !== 'string') throw Object.assign(new TypeError('paste requires {text}'), { error_code: 'EGO_INVALID_ARGUMENT' });
+        await (await page._session()).send('Input.insertText', { text });
+      },
+    };
+  }
+}
