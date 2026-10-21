@@ -1,27 +1,35 @@
 import { BrowserWindow, WebContentsView, ipcMain } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { SpaceManager } from './spaces.js';
+import { partitionForProfile as partitionFor } from './partitions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Keep in sync with renderer/ui.js layout constants.
 const CHROME_HEIGHT = 84;
 const SIDEBAR_WIDTH = 200;
-// The Default profile shares one session across all spaces (logins carry
-// over); extra profiles get isolated partitions.
-function partitionFor(space) {
-  return space.profileId === 'Default'
-    ? 'persist:default'
-    : `persist:profile-${space.profileId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-}
 
 function normalizeUrl(input) {
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) return input;
   return `https://${input}`;
 }
 
-export function createMainWindow({ httpEndpoint } = {}) {
+export function createMainWindow({ httpEndpoint, stateDir } = {}) {
+  const spacesFile = stateDir ? path.join(stateDir, 'spaces.json') : null;
+  let saveTimer = null;
+  function scheduleSave(spaces) {
+    if (!spacesFile) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        const tmp = `${spacesFile}.tmp`;
+        fs.writeFileSync(tmp, JSON.stringify(spaces.serializeState()), { mode: 0o600 });
+        fs.renameSync(tmp, spacesFile); // atomic replace
+      } catch { /* state dir not writable */ }
+    }, 500);
+  }
   // Resolve the real Chromium CDP targetId for a freshly created WebContentsView
   // by loading a unique marker URL and matching it in the DevTools target list.
   async function resolveCdpTargetId(marker, wc) {
@@ -74,7 +82,7 @@ export function createMainWindow({ httpEndpoint } = {}) {
   const spaces = new SpaceManager({
     createView(space, tab) {
       const view = new WebContentsView({
-        webPreferences: { partition: partitionFor(space), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
       });
       wireTabView(space, tab, view);
       view.setBackgroundColor('#ffffff');
@@ -132,8 +140,8 @@ export function createMainWindow({ httpEndpoint } = {}) {
     if (!win.isDestroyed()) win.webContents.send('state', spaces.serializeAll());
   }
 
-  spaces.on('spaceChanged', () => { layoutViews(); pushState(); });
-  spaces.on('taskState', () => pushState());
+  spaces.on('spaceChanged', () => { layoutViews(); pushState(); scheduleSave(spaces); });
+  spaces.on('taskState', () => { pushState(); scheduleSave(spaces); });
   win.on('resize', layoutViews);
 
   // User gestures mutate the active space directly and are only honored while
@@ -174,8 +182,17 @@ export function createMainWindow({ httpEndpoint } = {}) {
     pushState();
   });
 
-  const personal = spaces.createPersonalSpace();
-  spaces.addUserTab(personal.id, 'about:blank');
+  // Restore spaces from the previous run; fall back to a fresh Personal space.
+  let restored = false;
+  if (spacesFile) {
+    try {
+      restored = spaces.restoreState(JSON.parse(fs.readFileSync(spacesFile, 'utf8')));
+    } catch { restored = false; } // missing/corrupt file: start fresh
+  }
+  if (!restored) {
+    const personal = spaces.createPersonalSpace();
+    spaces.addUserTab(personal.id, 'about:blank');
+  }
 
   win.webContents.on('did-finish-load', pushState);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));

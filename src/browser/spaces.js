@@ -105,7 +105,14 @@ export class SpaceManager extends EventEmitter {
   createTaskSpace({ name, profileId = 'Default', profileName }) {
     for (const s of this.#spaces.values()) {
       if (s.name !== name) continue;
-      if (s.ownership === 'agent') return { id: s.id, taskId: s.taskId, name: s.name }; // resume
+      if (s.ownership === 'agent') {
+        // Resume (also after a restart, where control reset to user).
+        if (s.control !== 'agent') {
+          s.control = 'agent';
+          this.#changed(s);
+        }
+        return { id: s.id, taskId: s.taskId, name: s.name };
+      }
       throw err('EGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
     }
     const space = this.#newSpace({ name, createdBy: 'agent', ownership: 'agent', control: 'agent', profileId });
@@ -168,6 +175,64 @@ export class SpaceManager extends EventEmitter {
     space.agentState = state;
     this.emit('taskState', id, state);
     return `${id} state updated.`;
+  }
+
+  // ---- persistence ----
+
+  // Snapshot of restorable state. Control is intentionally NOT persisted:
+  // after a browser restart no agent is attached, so every space comes back
+  // under user control; an agent regains control by resuming (createTaskSpace
+  // on an agent-owned name flips control back) or claimTaskSpace.
+  serializeState() {
+    return {
+      nextSpaceId: this.#nextSpaceId,
+      activeSpaceId: this.activeSpaceId,
+      spaces: [...this.#spaces.values()].map((s) => ({
+        id: s.id,
+        name: s.name,
+        createdBy: s.createdBy,
+        ownership: s.ownership,
+        profileId: s.profileId,
+        profileName: s.profileName,
+        agentState: s.agentState,
+        activeTabIndex: Math.max(0, s.tabs.findIndex((t) => t.targetId === s.activeTargetId)),
+        tabs: s.tabs.map((t) => ({ url: t.url, title: t.title })),
+      })),
+    };
+  }
+
+  // Rebuild spaces from serializeState() data. Views are created lazily
+  // through the same hook as live tabs (marker → real targetId → real URL).
+  restoreState(data) {
+    if (!data || !Array.isArray(data.spaces)) return false;
+    for (const saved of data.spaces) {
+      const space = {
+        id: saved.id,
+        taskId: saved.name, // ego parity: taskId === name
+        name: saved.name,
+        createdBy: saved.createdBy === 'agent' ? 'agent' : 'user',
+        ownership: saved.ownership === 'agent' ? 'agent' : 'user',
+        control: 'user', // restart: no agent attached
+        profileId: saved.profileId || 'Default',
+        profileName: saved.profileName ?? saved.profileId ?? 'Default',
+        tabs: [],
+        activeTargetId: null,
+        agentState: typeof saved.agentState === 'string' ? saved.agentState : '',
+        recentTabTitles: [],
+      };
+      this.#spaces.set(space.id, space);
+      const tabs = Array.isArray(saved.tabs) && saved.tabs.length ? saved.tabs : [{ url: 'about:blank', title: '' }];
+      for (const t of tabs) this.#addTab(space, typeof t.url === 'string' && t.url ? t.url : 'about:blank');
+      const idx = Math.min(saved.activeTabIndex ?? 0, tabs.length - 1);
+      if (space.tabs[idx]) space.activeTargetId = space.tabs[idx].targetId;
+    }
+    if (Number.isInteger(data.nextSpaceId) && data.nextSpaceId > this.#nextSpaceId) {
+      this.#nextSpaceId = data.nextSpaceId;
+    }
+    this.activeSpaceId = this.#spaces.has(data.activeSpaceId)
+      ? data.activeSpaceId
+      : (this.#spaces.keys().next().value ?? null);
+    return this.#spaces.size > 0;
   }
 
   // ---- tabs ----

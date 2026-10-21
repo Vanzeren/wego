@@ -43,6 +43,11 @@ All task-space methods take the numeric space `id` explicitly in `params`.
     partitions (`persist:profile-<id>`).
 - `createProfile({ name })` → `{ id, name }` — CLI/UI extension; not exposed
   through the `ego.*` agent bindings.
+- `importChromeCookies({ profileId?, chromeDir? })` → `{ imported, failed,
+  undecryptable, expired, total, profileId }` — decrypts desktop Chrome
+  cookies (libsecret/KWallet keyring) and injects them into the session
+  partition of `profileId` (default `Default`). `chromeDir` overrides the
+  Chrome profile directory. `EGO_PROFILE_NOT_FOUND` on unknown profileId.
 
 ### Task spaces
 

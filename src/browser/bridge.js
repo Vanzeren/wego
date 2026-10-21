@@ -122,14 +122,21 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       return { id: profile.id, name: profile.name };
     },
 
-    // Import cookies from desktop Chrome (~/.config/google-chrome/Default)
-    // into the shared Default-profile session. Decryption uses the libsecret
-    // keyring; see chrome-import.js. CLI-only operation.
-    importChromeCookies: async () => {
+    // Import cookies from desktop Chrome into an ego profile's session.
+    // Decryption uses the libsecret/KWallet keyring; see chrome-import.js.
+    // params: { profileId? = 'Default', chromeDir? = Chrome Default profile }
+    importChromeCookies: async (params) => {
+      const profileId = optString(params, 'profileId') ?? 'Default';
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) throw err('EGO_PROFILE_NOT_FOUND', `Profile not found: ${profileId}`);
+      const chromeDir = optString(params, 'chromeDir');
       const { session } = await import('electron');
       const { importChromeCookieDescriptors } = await import('./chrome-import.js');
-      const { cookies, undecryptable, expired, total } = await importChromeCookieDescriptors();
-      const ses = session.fromPartition('persist:default');
+      const { partitionForProfile } = await import('./partitions.js');
+      const { cookies, undecryptable, expired, total } = await importChromeCookieDescriptors(
+        chromeDir ? { chromeDir } : {},
+      );
+      const ses = session.fromPartition(partitionForProfile(profile.id));
       let imported = 0;
       let failed = 0;
       for (const c of cookies) {
@@ -140,7 +147,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
           failed++;
         }
       }
-      return { imported, failed, undecryptable, expired, total };
+      return { imported, failed, undecryptable, expired, total, profileId: profile.id };
     },
 
     listTaskSpaces: () => spaces.listTaskSpaces(),

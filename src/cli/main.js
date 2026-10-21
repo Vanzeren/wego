@@ -200,14 +200,23 @@ async function cmdProfiles(args) {
     return 0;
   }
   if (sub === 'import-chrome') {
-    const r = await bridgeRequest('importChromeCookies', {}, 120_000);
-    console.log(`imported ${r.imported}/${r.total} Chrome cookies into the Default profile` +
+    const params = {};
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === '--profile' && rest[i + 1]) params.profileId = rest[++i];
+      else if (rest[i] === '--chrome-dir' && rest[i + 1]) params.chromeDir = rest[++i];
+      else {
+        console.error('usage: ego-browser profiles import-chrome [--profile <id>] [--chrome-dir <path>]');
+        return 2;
+      }
+    }
+    const r = await bridgeRequest('importChromeCookies', params, 120_000);
+    console.log(`imported ${r.imported}/${r.total} Chrome cookies into profile ${r.profileId}` +
       (r.expired ? ` (${r.expired} expired skipped)` : '') +
       (r.undecryptable ? ` (${r.undecryptable} undecryptable)` : '') +
       (r.failed ? ` (${r.failed} rejected)` : ''));
     return r.imported > 0 || r.total === 0 ? 0 : 1;
   }
-  console.error('usage: ego-browser profiles [list] | profiles create <name> | profiles import-chrome');
+  console.error('usage: ego-browser profiles [list] | profiles create <name> | profiles import-chrome [--profile <id>] [--chrome-dir <path>]');
   return 2;
 }
 

@@ -157,3 +157,64 @@ test('spaceChanged fires on create/claim/tab ops', () => {
   assert.ok(events.length >= 2);
   assert.ok(events.every((id) => id === t.id));
 });
+
+test('serializeState/restoreState round-trips spaces, tabs, ids; control resets to user', () => {
+  const views = [];
+  const sm = makeManager({ createView: (space, tab) => { views.push(`${space.name}:${tab.url}`); return null; } });
+  sm.createPersonalSpace();
+  sm.addUserTab(1, 'http://personal/');
+  const t = sm.createTaskSpace({ name: 'research' });
+  sm.createTab(t.id, 'http://a/');
+  sm.createTab(t.id, 'http://b/');
+  sm.setAgentTaskState({ id: t.id, state: 'halfway' });
+
+  const data = JSON.parse(JSON.stringify(sm.serializeState())); // through JSON like the file
+  const views2 = [];
+  const sm2 = makeManager({ createView: (space, tab) => { views2.push(`${space.name}:${tab.url}`); return null; } });
+  assert.equal(sm2.restoreState(data), true);
+
+  const { taskSpaces } = sm2.listTaskSpaces();
+  assert.equal(taskSpaces.length, 2);
+  const research = taskSpaces.find((s) => s.name === 'research');
+  assert.equal(research.id, t.id);
+  assert.equal(research.ownership, 'agent');
+  assert.equal(research.control, 'user'); // restart semantics
+  assert.equal(sm2.getSpace(t.id).agentState, 'halfway');
+  assert.deepEqual(sm2.getSpace(t.id).tabs.map((x) => x.url), ['about:blank', 'http://a/', 'http://b/']);
+  // every restored tab got a view through the hook
+  assert.equal(views2.length, 4);
+  // id allocator continues past restored ids
+  const fresh = sm2.createTaskSpace({ name: 'fresh' });
+  assert.ok(fresh.id > t.id);
+});
+
+test('resuming an agent space by name after restore flips control back to agent', () => {
+  const sm = makeManager();
+  sm.createPersonalSpace();
+  const t = sm.createTaskSpace({ name: 'resume-me' });
+  const data = JSON.parse(JSON.stringify(sm.serializeState()));
+  const sm2 = makeManager();
+  sm2.restoreState(data);
+  assert.equal(sm2.getSpace(t.id).control, 'user');
+  const resumed = sm2.createTaskSpace({ name: 'resume-me' });
+  assert.equal(resumed.id, t.id);
+  assert.equal(sm2.getSpace(t.id).control, 'agent');
+});
+
+test('restoreState rejects corrupt data and activeTabIndex is honored', () => {
+  const sm = makeManager();
+  assert.equal(sm.restoreState(null), false);
+  assert.equal(sm.restoreState({ spaces: 'nope' }), false);
+
+  const sm2 = makeManager();
+  const t = sm2.createTaskSpace({ name: 'tabs' });
+  sm2.createTab(t.id, 'http://one/');
+  sm2.createTab(t.id, 'http://two/');
+  const space = sm2.getSpace(t.id);
+  sm2.activateTab(t.id, space.tabs[1].targetId);
+  const data = JSON.parse(JSON.stringify(sm2.serializeState()));
+  const sm3 = makeManager();
+  sm3.restoreState(data);
+  const restored = sm3.getSpace(t.id);
+  assert.equal(restored.activeTargetId, restored.tabs[1].targetId);
+});

@@ -67,7 +67,12 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   partitions; bind a space with `taskSpace(name, { profile: "Profile 2" })`.
 - Chrome onboarding: `ego-browser profiles import-chrome` decrypts and
   imports your desktop Chrome cookies (libsecret/GNOME or KWallet/KDE
-  keyring) into the Default profile — verified to carry real login state.
+  keyring) — verified to carry real login state. Target another ego profile
+  with `--profile "Profile 2"` or another Chrome profile dir with
+  `--chrome-dir`.
+- Spaces persist across browser restarts (`~/.ego-lite/spaces.json`): names,
+  ownership, tabs, and page URLs are restored; control resets to the user and
+  an agent regains it by resuming the space by name.
 - Snapshot: accessibility-tree text with `[ref=N]` refs, roles/names, shadow
   DOM, same-origin iframes (`framePath`) AND cross-origin OOPIFs — captured
   from their own CDP targets, merged into one tree with frameId-tagged refs,
@@ -97,7 +102,6 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   the `Default` Chrome profile.
 - The remote-debugging endpoint is bound to 127.0.0.1 without auth; the bridge
   socket is `0600`. Do not expose either on shared machines.
-- Spaces and tab labels are in-memory; closing the browser ends all spaces.
 
 ## Layout
 

@@ -31,7 +31,7 @@ async function start() {
   const { createMainWindow } = await import('./window.js');
   const { startBridgeServer } = await import('./bridge.js');
 
-  windowApi = createMainWindow({ httpEndpoint: cdp.httpEndpoint });
+  windowApi = createMainWindow({ httpEndpoint: cdp.httpEndpoint, stateDir: egoDir });
   bridgeHandle = await startBridgeServer({ spaces: windowApi.spaces, windowApi, cdp });
 
   app.on('will-quit', () => bridgeHandle?.close());

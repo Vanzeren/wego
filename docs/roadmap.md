@@ -17,12 +17,12 @@ best-effort.
 
 - ~~Chrome profile import~~ Done for cookies (`profiles import-chrome`):
   libsecret + KWallet key sources, v10/v11 decryption, host-hash strip,
-  expired/SameSite=None handling. Still open: extensions/bookmarks/history,
-  non-Default Chrome profiles.
-- Persistent spaces across restarts (serialize SpaceManager state; tabs
-  restore from session history).
-- `keyboard.paste({ html })` via the Electron clipboard module exposed over
-  the bridge (browser-side clipboard write, then `Control+V` dispatch, then
-  restore the user's clipboard — the macOS/Windows ego behavior).
+  expired/SameSite=None handling, `--profile`/`--chrome-dir` targeting.
+  Still open: extensions/bookmarks/history.
+- ~~Persistent spaces across restarts~~ Done: `spaces.json` debounce-saved on
+  every mutation, restored at startup; control resets to user, resume-by-name
+  flips it back to agent.
+- ~~`keyboard.paste({ html })`~~ Done: bridge-side clipboard write, native
+  paste, restore.
 - Multi-window support (one window per space on demand).
 - Debounced/queued `spaceChanged` pushes for chatty pages.
