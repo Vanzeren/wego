@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>OOPIF host</title></head>
+<body>
+<h1 id="host-headline">OOPIF host page</h1>
+<button id="host-btn" type="button">Host button</button>
+<!-- cross-origin: localhost vs 127.0.0.1 on the same port = different origin -->
+<iframe id="remote-frame" title="Remote frame" width="400" height="160"></iframe>
+<script>
+  document.getElementById('remote-frame').src = 'http://localhost:' + location.port + '/iframe.html';
+</script>
+<script>
+  document.getElementById('host-btn').addEventListener('click', () => {
+    document.getElementById('host-headline').textContent = 'host-clicked';
+  });
+  window.__oopifLog = [];
+  window.addEventListener('message', (e) => {
+    if (e.data === 'frame-clicked') document.getElementById('host-headline').textContent = 'remote-frame-clicked';
+  });
+</script>
+</body></html>

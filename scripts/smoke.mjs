@@ -75,6 +75,20 @@ await page.waitForFunction(
 );
 console.log('smoke assert ok: file chooser upload reflected in page log');
 
+// OOPIF: cross-origin iframe nodes get refs and are actionable
+await page.goto(${JSON.stringify(baseUrl + '/oopif.html')});
+await page.waitForTimeout(800);
+const oopifSnap = await page.snapshot.raw();
+const frameBtn = oopifSnap.refs.find((r) => r.name === 'Frame button' && r.frameId);
+assert(frameBtn, 'OOPIF snapshot has a frameId-tagged ref for the cross-origin Frame button');
+await page.click('@' + frameBtn.refId);
+await page.waitForFunction(
+  () => document.getElementById('host-headline').textContent === 'remote-frame-clicked',
+  undefined,
+  { timeout: 5000 },
+);
+console.log('smoke assert ok: OOPIF cross-origin ref click worked');
+
 await task.finish({ keep: [] });
 console.log('SMOKE SCRIPT DONE');
 `;
@@ -112,6 +126,7 @@ try {
   check(result.out.includes('smoke assert ok: snapshot contains "Frame button"'), 'assert: snapshot has Frame button');
   check(result.out.includes('Welcome smoke@example.com'), 'assert: headline updated after Sign in');
   check(result.out.includes('file chooser upload reflected'), 'assert: file chooser upload');
+  check(result.out.includes('OOPIF cross-origin ref click worked'), 'assert: OOPIF ref click');
   check(fs.existsSync('/tmp/ego-smoke.png') && fs.statSync('/tmp/ego-smoke.png').size > 0, 'screenshot exists at /tmp/ego-smoke.png');
   failed = checks.some((c) => !c.ok);
 } finally {

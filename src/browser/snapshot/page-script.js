@@ -15,7 +15,9 @@ function egoSnapshotPageMain() {
   if (prev && prev.__scriptId === SCRIPT_ID) return prev;
 
   const token = 'doc-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-  let nextRefId = 1;
+  // OOPIF captures inject __egoSnapshotRefBase before this source so refs are
+  // unique across frames within one merged snapshot.
+  let nextRefId = 1 + (Number(globalThis.__egoSnapshotRefBase) || 0);
   const byId = new Map();    // refId -> Element (direct references; also covers iframe-document elements)
   const byEl = new WeakMap(); // Element -> refId (keeps refs stable across repeated captures)
 
@@ -356,6 +358,9 @@ function egoSnapshotPageMain() {
       const rootEl = fdoc.documentElement || fdoc.body;
       if (rootEl) walkElement(rootEl, ctx, node.children);
     }
+    // Orchestrator metadata: undescended (cross-origin) iframes get merged
+    // from their own OOPIF target afterwards.
+    if (ctx.frames) ctx.frames.push({ refId: node.refId, src: el.src || '', descended: !!fdoc });
     out.push(node);
   }
 
@@ -445,6 +450,7 @@ function egoSnapshotPageMain() {
       viewportOnly: scope === 'only_within_viewport',
       locs: opts.includeStableLocator === true,
       countCache: new Map(),
+      frames: [],
     };
     const roots = [];
     walkElement(rootEl, ctx, roots);
@@ -464,7 +470,7 @@ function egoSnapshotPageMain() {
     const lines = [];
     const refs = [];
     emitNode(rootNode, 0, lines, refs, opts.includeActionMarks === true);
-    return { content: lines.join('\n'), refs };
+    return { content: lines.join('\n'), refs, frames: ctx.frames };
   }
 
   const api = {

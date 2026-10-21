@@ -66,8 +66,10 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   (`ego-browser profiles create <name>`) get isolated cookie/storage
   partitions; bind a space with `taskSpace(name, { profile: "Profile 2" })`.
 - Snapshot: accessibility-tree text with `[ref=N]` refs, roles/names, shadow
-  DOM, same-origin iframes (refs inside them, `framePath`), disabled/hidden
-  handling, compaction, subtree/viewport/full-page scopes, stable locators
+  DOM, same-origin iframes (`framePath`) AND cross-origin OOPIFs — captured
+  from their own CDP targets, merged into one tree with frameId-tagged refs,
+  clickable via the same `@N` flow. Disabled/hidden handling, compaction,
+  subtree/viewport/full-page scopes, stable locators
   (`loc=role:...[name=...]`, unique CSS).
 - Actions with real input: click/dblclick/hover/drag, fill (with edit
   verification), press, selectOption, setInputFiles, mouse.*, keyboard.*
@@ -85,8 +87,10 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 
 ## Known limits (vs ego-lite on macOS/Windows)
 
-- Cross-origin OOPIF iframes appear in snapshots but their inner nodes have no
-  refs (same-origin iframes are fully supported). See `docs/roadmap.md`.
+- Selector-based actions (`css=`, `text=`, …) do not reach inside
+  cross-origin OOPIFs — use a snapshot ref (`@N`) for those nodes; OOPIF
+  subtree scope captures the whole frame. Nested OOPIF-in-OOPIF ownership
+  checks are best-effort.
 - `keyboard.paste({ html })` is unsupported on Linux (plain text uses
   `insertText`).
 - Chrome profile/cookie import not available; log in once inside ego lite

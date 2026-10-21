@@ -184,14 +184,14 @@ function invalidSelector(target) {
   return err;
 }
 
-// Resolve a target string to { objectId } on the page's CDP session.
+// Resolve a target string to { objectId, session } on the CDP session that
+// owns the element (page session, or the OOPIF frame session for frame refs).
 // opts.checkActionable: when true, hidden/disabled → not_actionable.
 export async function resolveTarget(page, target, { checkActionable = false } = {}) {
   if (typeof target === 'string' || typeof target === 'number') {
     const refId = parseRefTarget(target);
     if (refId !== null) {
-      const objectId = await resolveRef(page, target);
-      return { objectId };
+      return resolveRef(page, target); // { objectId, session }
     }
   }
   if (typeof target !== 'string' || target.trim() === '') throw invalidSelector(String(target));
@@ -227,5 +227,5 @@ export async function resolveTarget(page, target, { checkActionable = false } = 
   if (checkActionable && (!out.visible || out.disabled)) {
     throw new ElementResolutionError('not_actionable', `Element is not actionable (hidden or disabled): ${target}`);
   }
-  return { objectId: obj.result.objectId };
+  return { objectId: obj.result.objectId, session };
 }

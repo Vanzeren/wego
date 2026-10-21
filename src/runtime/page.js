@@ -373,8 +373,7 @@ export class Page {
 
   // ---- element mechanics ----
 
-  async _quads(objectId) {
-    const session = await this._session();
+  async _quads(objectId, session) {
     try {
       const { quads } = await session.send('DOM.getContentQuads', { objectId });
       if (quads && quads.length) return quads;
@@ -394,8 +393,7 @@ export class Page {
     return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
   }
 
-  async _scrollIntoView(objectId) {
-    const session = await this._session();
+  async _scrollIntoView(objectId, session) {
     try {
       await session.send('DOM.scrollIntoViewIfNeeded', { objectId });
       return;
@@ -406,14 +404,17 @@ export class Page {
     }).catch(() => {});
   }
 
+  // pointFor: coordinates are viewport-local to the resolved session. For
+  // OOPIF refs that is the frame's own viewport — CDP Input on the frame
+  // session takes frame-local coordinates, so no translation is needed.
   async _pointFor(target, { checkActionable = true } = {}) {
-    const { objectId } = await resolveTarget(this, target, { checkActionable });
-    await this._scrollIntoView(objectId);
-    const quads = await this._quads(objectId);
+    const { objectId, session } = await resolveTarget(this, target, { checkActionable });
+    await this._scrollIntoView(objectId, session);
+    const quads = await this._quads(objectId, session);
     if (!quads.length) {
       throw Object.assign(new Error(`Element has no clickable point: ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
     }
-    return { objectId, point: Page._quadCenter(quads[0]) };
+    return { objectId, point: Page._quadCenter(quads[0]), session };
   }
 
   // receipt: popups/dialog observed within 500ms after dispatch
@@ -433,8 +434,8 @@ export class Page {
     return receipt;
   }
 
-  async _dispatchClick(point, { clickCount = 1 } = {}) {
-    const session = await this._session();
+  async _dispatchClick(point, { clickCount = 1, session } = {}) {
+    session ??= await this._session();
     this._watchPopups();
     this._mousePos = { x: point.x, y: point.y };
     await mouseEvent(session, 'mouseMoved', point.x, point.y);
@@ -446,23 +447,22 @@ export class Page {
 
   async click(target, { label } = {}) {
     void label;
-    const { point } = await this._pointFor(target);
-    await this._dispatchClick(point, { clickCount: 1 });
+    const { point, session } = await this._pointFor(target);
+    await this._dispatchClick(point, { clickCount: 1, session });
     return this._receipt();
   }
 
   async dblclick(target, { label } = {}) {
     void label;
-    const { point } = await this._pointFor(target);
-    await this._dispatchClick(point, { clickCount: 2 });
+    const { point, session } = await this._pointFor(target);
+    await this._dispatchClick(point, { clickCount: 2, session });
     return this._receipt();
   }
 
   async hover(target, { label } = {}) {
     void label;
     // hover may target disabled elements
-    const { point } = await this._pointFor(target, { checkActionable: false });
-    const session = await this._session();
+    const { point, session } = await this._pointFor(target, { checkActionable: false });
     await mouseEvent(session, 'mouseMoved', point.x, point.y);
     return this._receipt();
   }
@@ -471,18 +471,16 @@ export class Page {
     void label;
     const src = await this._pointFor(source, { checkActionable: false });
     const dst = await this._pointFor(destination, { checkActionable: false });
-    const session = await this._session();
-    await mouseEvent(session, 'mouseMoved', src.point.x, src.point.y);
-    await mouseEvent(session, 'mousePressed', src.point.x, src.point.y, { button: 'left', buttons: MOUSE_BUTTONS.left, clickCount: 1 });
-    await mouseEvent(session, 'mouseMoved', dst.point.x, dst.point.y, { button: 'left', buttons: MOUSE_BUTTONS.left });
-    await mouseEvent(session, 'mouseReleased', dst.point.x, dst.point.y, { button: 'left', buttons: 0, clickCount: 1 });
+    await mouseEvent(src.session, 'mouseMoved', src.point.x, src.point.y);
+    await mouseEvent(src.session, 'mousePressed', src.point.x, src.point.y, { button: 'left', buttons: MOUSE_BUTTONS.left, clickCount: 1 });
+    await mouseEvent(dst.session, 'mouseMoved', dst.point.x, dst.point.y, { button: 'left', buttons: MOUSE_BUTTONS.left });
+    await mouseEvent(dst.session, 'mouseReleased', dst.point.x, dst.point.y, { button: 'left', buttons: 0, clickCount: 1 });
     return this._receipt();
   }
 
   async fill(target, text) {
-    const { objectId } = await resolveTarget(this, target, { checkActionable: true });
-    await this._scrollIntoView(objectId);
-    const session = await this._session();
+    const { objectId, session } = await resolveTarget(this, target, { checkActionable: true });
+    await this._scrollIntoView(objectId, session);
     // focus + select-all existing value in-page
     await session.send('Runtime.callFunctionOn', {
       objectId,
@@ -535,8 +533,7 @@ export class Page {
   }
 
   async selectOption(target, values) {
-    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
-    const session = await this._session();
+    const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     if (values === null) {
       await session.send('Runtime.callFunctionOn', {
         objectId,
@@ -573,8 +570,7 @@ export class Page {
   }
 
   async focus(target) {
-    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
-    const session = await this._session();
+    const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     await session.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){ this.focus(); }' });
     return this._receipt();
   }
@@ -582,8 +578,7 @@ export class Page {
   async press(target, key) {
     if (key === undefined) { key = target; target = null; } // press(key) convenience? keep strict: (target,key)
     if (target == null) throw Object.assign(new TypeError('press(target, key) requires a target'), { error_code: 'EGO_INVALID_ARGUMENT' });
-    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
-    const session = await this._session();
+    const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     await session.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){ this.focus(); }' });
     await pressKey(session, key);
     return this._receipt();
@@ -594,8 +589,7 @@ export class Page {
     for (const p of paths) {
       if (!path.isAbsolute(p)) throw Object.assign(new TypeError('setInputFiles paths must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
     }
-    const { objectId } = await resolveTarget(this, target, { checkActionable: false });
-    const session = await this._session();
+    const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     const { node } = await session.send('DOM.describeNode', { objectId });
     await session.send('DOM.setFileInputFiles', { files: paths, nodeId: node.nodeId }).catch(async () => {
       const { node: n2 } = await session.send('DOM.describeNode', { objectId });

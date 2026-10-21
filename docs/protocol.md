@@ -84,9 +84,15 @@ Tab mutation while `control === "user"` fails with
     includeStableLocator?: boolean, maxResultLength?: number }`
   - `scope:"subtree"` requires `root` = a `refId` from a previous snapshot.
   - `Ref`: `{ refId: number, role: string, name: string,
-    loc?: string, framePath?: string }` (`loc` only when a unique stable
-    locator exists; `framePath` like `"0/2"` for same-origin iframe descent,
-    omitted for the top document).
+    loc?: string, framePath?: string, frameId?: string }`
+    (`loc` only when a unique stable locator exists; `framePath` like `"0/2"`
+    for same-origin iframe descent, omitted for the top document; `frameId`
+    is the OOPIF's CDP target id when the node lives in a cross-origin
+    iframe).
+  - Cross-origin OOPIFs are captured from their own CDP targets and merged
+    under their iframe line; their refIds come from disjoint blocks
+    (100000+) so they never collide with top-document refs. Ref resolution
+    for `frameId` refs happens on a session attached to that frame target.
   - Rejects with `EGO_SNAPSHOT_FAILED` / `EGO_TASK_SPACE_USER_IN_CONTROL` /
     `EGO_WEB_CONTENTS_UNAVAILABLE`.
 

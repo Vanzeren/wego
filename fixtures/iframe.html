@@ -5,7 +5,9 @@
 <button id="frame-btn" type="button">Frame button</button>
 <script>
   document.getElementById('frame-btn').addEventListener('click', () => {
-    parent.__fixture.log('frame-clicked');
+    // same-origin host: direct call; cross-origin host: postMessage fallback
+    try { parent.__fixture.log('frame-clicked'); }
+    catch { parent.postMessage('frame-clicked', '*'); }
   });
 </script>
 </body></html>

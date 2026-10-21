@@ -56,7 +56,9 @@ function validateSnapshotOptions(options) {
 export async function startBridgeServer({ spaces, windowApi, cdp }) {
   let captureSnapshot = null;
   try {
-    ({ captureSnapshot } = await import('./snapshot/index.js'));
+    const engine = await import('./snapshot/index.js');
+    captureSnapshot = engine.captureSnapshot;
+    engine.configureSnapshot({ webSocketDebuggerUrl: cdp.webSocketDebuggerUrl });
   } catch {
     captureSnapshot = null; // snapshot engine slice not present
   }
@@ -199,7 +201,9 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         throw err('EGO_WEB_CONTENTS_UNAVAILABLE', `Web contents unavailable: ${targetId ?? `space ${id} has no active tab`}`);
       }
       if (!captureSnapshot) throw err('EGO_SNAPSHOT_FAILED', 'snapshot engine unavailable');
-      return captureSnapshot(wc, options);
+      // Real Chromium targetId enables OOPIF ownership checks in the engine.
+      const realTargetId = await spaces.awaitTargetId(id, tab.targetId);
+      return captureSnapshot(wc, options, { targetId: realTargetId });
     },
 
     getCDPEndpoint: () => ({
