@@ -62,7 +62,8 @@ export function parseKeySpec(spec) {
   // shift-modified printable: adjust text (e.g. Shift+a → 'A')
   let text = main.text;
   if (text && (modifiers & MOD_BIT.Shift) && /^[a-z]$/.test(text)) text = text.toUpperCase();
-  if (modifiers && text && text.length === 1 && text !== '\r' && text !== '\t') text = undefined; // chords don't insert text
+  // chords with non-Shift modifiers don't insert text (Shift+a → 'A' does)
+  if ((modifiers & ~MOD_BIT.Shift) && text && text.length === 1 && text !== '\r' && text !== '\t') text = undefined;
   return { main: { ...main, text }, modifiers, keys };
 }
 

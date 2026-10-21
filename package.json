@@ -8,6 +8,7 @@
   "scripts": {
     "start": "electron .",
     "cli": "node bin/ego-browser",
+    "test": "node --test test/",
     "smoke": "node scripts/smoke.mjs"
   },
   "bin": {

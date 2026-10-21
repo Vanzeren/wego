@@ -146,7 +146,10 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       const id = reqId(params);
       if (typeof params.x !== 'number' || !Number.isFinite(params.x)) throw bad('x must be a number');
       if (typeof params.y !== 'number' || !Number.isFinite(params.y)) throw bad('y must be a number');
-      spaces.requireSpace(id);
+      const space = spaces.requireSpace(id);
+      if (space.control !== 'agent') {
+        throw err('EGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
+      }
       // Best-effort: the protocol string resolves regardless of UI delivery.
       try { windowApi.sendHighlight({ x: params.x, y: params.y }); } catch { /* window gone */ }
       return `${id} mouse highlight shown.`;

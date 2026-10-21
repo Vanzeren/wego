@@ -25,11 +25,16 @@ dependencies** — do not add any without explicit approval. Node ≥ 22, Electr
 
 ```bash
 npm start          # or let the CLI auto-launch
+npm test           # unit/integration suite (node --test test/, no browser needed)
 node scripts/smoke.mjs   # end-to-end: snapshot/fill/click/screenshot/file-chooser
 ego-browser doctor
 ```
 
-The smoke test is the regression gate; extend it when adding Page surface.
+Two test layers, both are regression gates:
+- `test/*.test.mjs` — fast unit/integration: SpaceManager, input mapping,
+  ref ledger, bridge server over a real socket (fake view hooks), ego client
+  against a scripted fake bridge. Runs without a display.
+- `scripts/smoke.mjs` — real-browser e2e; extend it when adding Page surface.
 For manual rounds keep a fixture server running:
 `node -e "…serve ./fixtures on 18923…"` (see git history or scripts/smoke.mjs
 for the server snippet), then `ego-browser nodejs <<'EOF' … EOF`.

@@ -127,6 +127,7 @@ export class SpaceManager extends EventEmitter {
 
   closeTaskSpace({ id }) {
     const space = this.requireSpace(id);
+    this.#requireAgentControl(space);
     for (const tab of space.tabs) {
       try { this.#hooks.destroyView?.(space, tab); } catch { /* view already gone */ }
     }
@@ -140,6 +141,7 @@ export class SpaceManager extends EventEmitter {
 
   completeTaskSpace({ id }) {
     const space = this.requireSpace(id);
+    this.#requireAgentControl(space);
     space.ownership = 'user';
     space.control = 'user';
     this.#changed(space);
@@ -162,6 +164,7 @@ export class SpaceManager extends EventEmitter {
 
   setAgentTaskState({ id, state }) {
     const space = this.requireSpace(id);
+    this.#requireAgentControl(space);
     space.agentState = state;
     this.emit('taskState', id, state);
     return `${id} state updated.`;
@@ -242,6 +245,7 @@ export class SpaceManager extends EventEmitter {
 
   listTabs(id) {
     const space = this.requireSpace(id);
+    this.#requireAgentControl(space); // ego parity: listTabs is gated too
     return {
       tabs: space.tabs.map((t, i) => ({
         index: i,
