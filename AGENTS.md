@@ -48,4 +48,20 @@ Electron instances: the app holds a single-instance lock. `pkill -f
   by `ego-browser skill`) and README in the same commit.
 - Agent-facing semantics follow upstream ego-lite docs; deviate only for real
   platform constraints and document the deviation in skill-body + README.
-- Tests: `scripts/smoke.mjs` is the suite; fixtures in `fixtures/`.
+
+## Test maintenance (mandatory)
+
+- **Every behavior change ships with tests in the same commit.** No
+  test-less fixes or features.
+- Bug fix → add a regression test that fails before the fix and passes after
+  (see `test/input.test.mjs` Shift-chord case for the pattern).
+- New bridge method or changed params/results/error codes → extend
+  `test/bridge.test.mjs`; client-side gating/validation →
+  `test/ego-client.test.mjs`; state-machine change → `test/spaces.test.mjs`.
+- New Page/SDK surface → extend `scripts/smoke.mjs` (real browser) and add
+  fixture elements to `fixtures/` when the behavior needs them.
+- Changing existing behavior: update the affected tests; never delete or
+  weaken a failing assertion just to go green — pin the intended behavior
+  instead.
+- Before committing: `npm test` and `node scripts/smoke.mjs` must both pass.
+  Fixtures for smoke live in `fixtures/`; do not hand-edit `/tmp` artifacts.
