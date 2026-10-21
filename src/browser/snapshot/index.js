@@ -126,9 +126,41 @@ async function mergeRemoteFrames(capture, frames, options, pageSession, state) {
   }
 }
 
+function truncate(content, options) {
+  const max = options && options.maxResultLength;
+  if (Number.isInteger(max) && max >= 0 && content.length > max) {
+    return content.slice(0, max); // truncates content only, never refs
+  }
+  return content;
+}
+
+// Subtree scope rooted at an OOPIF node: the root refId lives in the frame
+// target's registry, so capture inside that frame target directly.
+async function frameSubtreeCapture(frameTargetId, options) {
+  if (!cdp) throw egoError('EGO_SNAPSHOT_FAILED', 'Snapshot failed: frame capture unavailable (no CDP)');
+  const session = await cdp.attach(frameTargetId);
+  try {
+    const { result, exceptionDetails } = await session.send('Runtime.evaluate', {
+      expression: captureExpression(0, cleanOptions(options)),
+      returnByValue: true,
+    });
+    if (exceptionDetails || !result?.value || typeof result.value.content !== 'string') {
+      const msg = exceptionDetails?.exception?.description || exceptionDetails?.text || 'no result';
+      throw egoError('EGO_SNAPSHOT_FAILED', 'Snapshot failed in frame: ' + msg);
+    }
+    return { content: result.value.content, refs: tagFrameRefs(result.value.refs, frameTargetId) };
+  } finally {
+    await session.detach();
+  }
+}
+
 export async function captureSnapshot(webContents, options = {}, context = {}) {
   if (!isUsable(webContents)) {
     throw egoError('EGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable: missing or destroyed');
+  }
+  if (context.rootFrameId) {
+    const sub = await frameSubtreeCapture(context.rootFrameId, options);
+    return { content: truncate(sub.content, options), refs: sub.refs };
   }
   const raw = await topCapture(webContents, options);
 
@@ -157,11 +189,7 @@ export async function captureSnapshot(webContents, options = {}, context = {}) {
     } catch { /* CDP unavailable: return the unmerged top capture */ }
   }
 
-  let content = raw.content;
-  const max = options && options.maxResultLength;
-  if (Number.isInteger(max) && max >= 0 && content.length > max) {
-    content = content.slice(0, max); // truncates content only, never refs
-  }
+  let content = truncate(raw.content, options);
   return { content, refs: raw.refs };
 }
 

@@ -83,6 +83,8 @@ Tab mutation while `control === "user"` fails with
     root?: number, interactiveOnly?: boolean, includeActionMarks?: boolean,
     includeStableLocator?: boolean, maxResultLength?: number }`
   - `scope:"subtree"` requires `root` = a `refId` from a previous snapshot.
+    With `rootFrameId` (set by the SDK when the root ref has a `frameId`),
+    the capture runs inside that OOPIF target instead of the top document.
   - `Ref`: `{ refId: number, role: string, name: string,
     loc?: string, framePath?: string, frameId?: string }`
     (`loc` only when a unique stable locator exists; `framePath` like `"0/2"`
@@ -95,6 +97,13 @@ Tab mutation while `control === "user"` fails with
     for `frameId` refs happens on a session attached to that frame target.
   - Rejects with `EGO_SNAPSHOT_FAILED` / `EGO_TASK_SPACE_USER_IN_CONTROL` /
     `EGO_WEB_CONTENTS_UNAVAILABLE`.
+
+### Clipboard
+
+- `paste({ id, targetId?, text?, html? })` → `"<id> pasted."`
+  - Writes the clipboard, performs a native paste at the current focus of the
+    addressed tab (active tab by default), then restores the user's previous
+    clipboard. One of `text`/`html` is required. Gated by user control.
 
 ### CDP
 

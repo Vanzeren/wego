@@ -404,15 +404,15 @@ browser semantics.
 
 ## Linux notes
 
-- `keyboard.paste({ text })` pastes plain text. Passing `{ html }` (the
-  rich-clipboard form) throws an unsupported error on Linux — use
-  `keyboard.insertText()` for plain-text insertion instead.
+- `keyboard.paste({ text, html? })` writes the clipboard, performs a native
+  paste at the current focus, then restores the user's previous clipboard
+  contents. `text` is the plain-text fallback when `html` is given.
 - Cross-origin (OOPIF) iframe content appears in snapshots WITH refs, merged
   under the iframe line. Act on those nodes via their `@N` refs like any
   other node (actions run on the frame's own session). Selector forms
   (`css=`, `text=`, …) do not reach inside cross-origin frames — use refs
-  from a snapshot. `scope: "subtree"` on a cross-origin iframe's ref returns
-  the iframe line only; take a normal snapshot to get its merged content.
+  from a snapshot. `scope: "subtree"` works on refs INSIDE the frame; on the
+  cross-origin iframe element's own ref it returns the iframe line only.
 - Chrome profile migration is not available on Linux. Logins from your desktop
   Chrome do not carry over; sign in again inside ego lite (or hand the space
   off to the user to sign in).

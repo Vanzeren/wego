@@ -37,11 +37,13 @@ const SNAPSHOT_SCOPES = new Set(['full_page', 'only_within_viewport', 'subtree']
 function validateSnapshotOptions(options) {
   if (options === undefined || options === null) return {};
   if (typeof options !== 'object' || Array.isArray(options)) throw bad('options must be an object');
-  const { scope, root, interactiveOnly, includeActionMarks, includeStableLocator, maxResultLength } = options;
+  const { scope, root, rootFrameId, interactiveOnly, includeActionMarks, includeStableLocator, maxResultLength } = options;
   if (scope !== undefined && !SNAPSHOT_SCOPES.has(scope)) {
     throw bad(`options.scope must be one of: ${[...SNAPSHOT_SCOPES].join(', ')}`);
   }
   if (root !== undefined && (typeof root !== 'number' || !Number.isInteger(root))) throw bad('options.root must be an integer');
+  if (rootFrameId !== undefined && typeof rootFrameId !== 'string') throw bad('options.rootFrameId must be a string');
+  if (rootFrameId !== undefined && scope !== 'subtree') throw bad('options.rootFrameId requires scope "subtree"');
   if (scope === 'subtree' && root === undefined) throw bad('options.root is required when scope is "subtree"');
   for (const [k, v] of [['interactiveOnly', interactiveOnly], ['includeActionMarks', includeActionMarks], ['includeStableLocator', includeStableLocator]]) {
     if (v !== undefined && typeof v !== 'boolean') throw bad(`options.${k} must be a boolean`);
@@ -55,12 +57,18 @@ function validateSnapshotOptions(options) {
 // NDJSON JSON-RPC server on the bridge Unix socket. See docs/protocol.md.
 export async function startBridgeServer({ spaces, windowApi, cdp }) {
   let captureSnapshot = null;
+  let clipboard = null;
   try {
     const engine = await import('./snapshot/index.js');
     captureSnapshot = engine.captureSnapshot;
     engine.configureSnapshot({ webSocketDebuggerUrl: cdp.webSocketDebuggerUrl });
   } catch {
     captureSnapshot = null; // snapshot engine slice not present
+  }
+  try {
+    ({ clipboard } = await import('electron'));
+  } catch {
+    clipboard = null; // unit tests without electron: paste reports unavailable
   }
 
   const sockPath = process.env.EGO_BRIDGE_SOCK || path.join(os.homedir(), '.ego-lite', 'bridge.sock');
@@ -203,13 +211,47 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       if (!captureSnapshot) throw err('EGO_SNAPSHOT_FAILED', 'snapshot engine unavailable');
       // Real Chromium targetId enables OOPIF ownership checks in the engine.
       const realTargetId = await spaces.awaitTargetId(id, tab.targetId);
-      return captureSnapshot(wc, options, { targetId: realTargetId });
+      return captureSnapshot(wc, options, { targetId: realTargetId, rootFrameId: options.rootFrameId });
     },
 
     getCDPEndpoint: () => ({
       webSocketDebuggerUrl: cdp.webSocketDebuggerUrl,
       httpEndpoint: cdp.httpEndpoint,
     }),
+
+    // Clipboard paste with restore (ego parity: native paste, then the user's
+    // previous clipboard contents are put back). Browser-side because CDP
+    // page sessions cannot write the system clipboard.
+    paste: async (params) => {
+      const id = reqId(params);
+      const space = spaces.requireSpace(id);
+      if (space.control !== 'agent') {
+        throw err('EGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
+      }
+      if (params.text !== undefined && typeof params.text !== 'string') throw bad('text must be a string');
+      if (params.html !== undefined && typeof params.html !== 'string') throw bad('html must be a string');
+      if (params.text === undefined && params.html === undefined) throw bad('paste requires text or html');
+      const targetId = optString(params, 'targetId');
+      const tab = targetId !== undefined
+        ? space.tabs.find((t) => t.targetId === targetId)
+        : space.tabs.find((t) => t.targetId === space.activeTargetId);
+      const wc = tab?.view?.webContents;
+      if (!wc || wc.isDestroyed()) throw err('EGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable');
+      if (!clipboard) throw err('EGO_OPERATION_FAILED', 'clipboard unavailable');
+      const prev = { text: clipboard.readText(), html: clipboard.readHTML() };
+      clipboard.write({
+        ...(params.text !== undefined ? { text: params.text } : {}),
+        ...(params.html !== undefined ? { html: params.html } : {}),
+      });
+      try {
+        wc.focus();
+        wc.paste();
+        await new Promise((r) => setTimeout(r, 80)); // let the paste land
+      } finally {
+        clipboard.write({ text: prev.text, html: prev.html });
+      }
+      return `${id} pasted.`;
+    },
   };
 
   async function handleLine(socket, line) {

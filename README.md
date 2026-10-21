@@ -88,11 +88,8 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 ## Known limits (vs ego-lite on macOS/Windows)
 
 - Selector-based actions (`css=`, `text=`, …) do not reach inside
-  cross-origin OOPIFs — use a snapshot ref (`@N`) for those nodes; OOPIF
-  subtree scope captures the whole frame. Nested OOPIF-in-OOPIF ownership
-  checks are best-effort.
-- `keyboard.paste({ html })` is unsupported on Linux (plain text uses
-  `insertText`).
+  cross-origin OOPIFs — use a snapshot ref (`@N`) for those nodes. Nested
+  OOPIF-in-OOPIF ownership checks are best-effort.
 - Chrome profile/cookie import not available; log in once inside ego lite
   (Default profile persists across restarts).
 - The remote-debugging endpoint is bound to 127.0.0.1 without auth; the bridge

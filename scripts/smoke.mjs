@@ -89,6 +89,25 @@ await page.waitForFunction(
 );
 console.log('smoke assert ok: OOPIF cross-origin ref click worked');
 
+// subtree scope: '@N' string root on a top-page node
+await page.goto(${JSON.stringify(baseUrl + '/page.html')});
+const full = await page.snapshot.raw();
+const emailRef = full.refs.find((r) => r.role === 'textbox' && r.name === 'Email');
+const sub = await page.snapshot({ scope: 'subtree', root: '@' + emailRef.refId });
+assert(sub.includes('textbox "Email"'), 'subtree scope captures the rooted node');
+assert(!sub.includes('Count: 0'), 'subtree scope excludes siblings');
+
+// clipboard paste with restore (plain text and html forms)
+await page.click('css=#email');
+await page.keyboard.paste({ text: 'pasted@example.com' });
+const pasted = await page.evaluate(() => document.getElementById('email').value);
+assert(pasted === 'pasted@example.com', 'keyboard.paste({text}) pastes into the focused element, got: ' + pasted);
+await page.fill('css=#email', '');
+await page.keyboard.paste({ text: 'plain', html: '<b>plain</b>' });
+const pastedHtml = await page.evaluate(() => document.getElementById('email').value);
+assert(pastedHtml === 'plain', 'keyboard.paste({html}) is accepted, got: ' + pastedHtml);
+console.log('smoke assert ok: subtree scope and clipboard paste');
+
 await task.finish({ keep: [] });
 console.log('SMOKE SCRIPT DONE');
 `;
@@ -127,6 +146,7 @@ try {
   check(result.out.includes('Welcome smoke@example.com'), 'assert: headline updated after Sign in');
   check(result.out.includes('file chooser upload reflected'), 'assert: file chooser upload');
   check(result.out.includes('OOPIF cross-origin ref click worked'), 'assert: OOPIF ref click');
+  check(result.out.includes('subtree scope and clipboard paste'), 'assert: subtree scope + paste');
   check(fs.existsSync('/tmp/ego-smoke.png') && fs.statSync('/tmp/ego-smoke.png').size > 0, 'screenshot exists at /tmp/ego-smoke.png');
   failed = checks.some((c) => !c.ok);
 } finally {

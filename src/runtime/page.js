@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-import { populate as populateRefs } from './refs.js';
+import { populate as populateRefs, parseRefTarget, lookup as lookupRef } from './refs.js';
 import { resolveTarget } from './selectors.js';
 import { parseKeySpec, keyDown, keyUp, pressKey, typeText, mouseEvent, MOUSE_BUTTONS } from './input.js';
 import { CDPError } from './cdp.js';
@@ -353,10 +353,31 @@ export class Page {
 
   // ---- snapshot ----
 
+  // Normalize snapshot options: '@N' string roots → integers; OOPIF iframe
+  // refs route the capture to the frame target via rootFrameId.
+  _snapshotOptions(options) {
+    if (!options) return options;
+    const out = { ...options };
+    if (out.root !== undefined) {
+      const refId = parseRefTarget(out.root);
+      if (refId === null) {
+        throw Object.assign(new TypeError('snapshot root must be a @N ref from a snapshot'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      }
+      const entry = lookupRef(this, refId);
+      if (!entry) {
+        throw new CDPError(`Ref @${refId} is not from this page's latest snapshot; re-snapshot and retry`, 'EGO_OPERATION_FAILED');
+      }
+      out.root = refId;
+      if (entry.frameId) out.rootFrameId = entry.frameId;
+    }
+    return out;
+  }
+
   async snapshot(options) {
     const ego = this._ctx().ego;
     ego.useTaskSpace(this.spaceId);
-    const { content, refs } = await ego._call('snapshot', { id: this.spaceId, targetId: this.targetId, ...(options ? { options } : {}) });
+    const opts = this._snapshotOptions(options);
+    const { content, refs } = await ego._call('snapshot', { id: this.spaceId, targetId: this.targetId, ...(opts ? { options: opts } : {}) });
     const fullPage = !options || !options.scope || options.scope === 'full_page';
     populateRefs(this, refs, { fullPage });
     return content;
@@ -365,7 +386,8 @@ export class Page {
   async _snapshotRaw(options) {
     const ego = this._ctx().ego;
     ego.useTaskSpace(this.spaceId);
-    const result = await ego._call('snapshot', { id: this.spaceId, targetId: this.targetId, ...(options ? { options } : {}) });
+    const opts = this._snapshotOptions(options);
+    const result = await ego._call('snapshot', { id: this.spaceId, targetId: this.targetId, ...(opts ? { options: opts } : {}) });
     const fullPage = !options || !options.scope || options.scope === 'full_page';
     populateRefs(this, result.refs, { fullPage });
     return result;
@@ -734,11 +756,16 @@ export class Page {
       async type(text, { delay = 0 } = {}) { await typeText(await page._session(), String(text), { delay }); },
       async insertText(text) { await (await page._session()).send('Input.insertText', { text: String(text) }); },
       async paste({ text, html } = {}) {
-        if (html !== undefined) {
-          throw new CDPError('keyboard.paste({html}) is unsupported on Linux (no clipboard write via page session)', 'EGO_OPERATION_FAILED');
+        if (typeof text !== 'string' && typeof html !== 'string') {
+          throw Object.assign(new TypeError('paste requires {text} and/or {html}'), { error_code: 'EGO_INVALID_ARGUMENT' });
         }
-        if (typeof text !== 'string') throw Object.assign(new TypeError('paste requires {text}'), { error_code: 'EGO_INVALID_ARGUMENT' });
-        await (await page._session()).send('Input.insertText', { text });
+        // Browser-side clipboard write + native paste + clipboard restore.
+        await page._ctx().ego._call('paste', {
+          id: page.spaceId,
+          targetId: page.targetId,
+          ...(text !== undefined ? { text } : {}),
+          ...(html !== undefined ? { html } : {}),
+        });
       },
     };
   }
