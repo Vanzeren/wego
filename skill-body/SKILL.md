@@ -413,9 +413,9 @@ browser semantics.
   (`css=`, `text=`, …) do not reach inside cross-origin frames — use refs
   from a snapshot. `scope: "subtree"` works on refs INSIDE the frame; on the
   cross-origin iframe element's own ref it returns the iframe line only.
-- Chrome profile migration is not available on Linux. Logins from your desktop
-  Chrome do not carry over; sign in again inside ego lite (or hand the space
-  off to the user to sign in).
+- Chrome onboarding: `ego-browser profiles import-chrome` imports desktop
+  Chrome cookies (GNOME libsecret or KDE KWallet keyring) into the Default
+  profile. Extensions, bookmarks, and non-Chrome profiles are not imported.
 - The browser is launched with `electron <repo>`; set `EGO_ELECTRON` to point
   at a specific Electron binary and `EGO_BRIDGE_SOCK` to override the bridge
   socket path (`~/.ego-lite/bridge.sock` by default).

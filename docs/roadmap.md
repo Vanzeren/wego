@@ -15,8 +15,10 @@ best-effort.
 
 ## Later
 
-- Chrome profile import (cookies via Secret Service keyring + SQLite,
-  extensions/bookmarks copy) — the onboarding feature of ego-lite.
+- ~~Chrome profile import~~ Done for cookies (`profiles import-chrome`):
+  libsecret + KWallet key sources, v10/v11 decryption, host-hash strip,
+  expired/SameSite=None handling. Still open: extensions/bookmarks/history,
+  non-Default Chrome profiles.
 - Persistent spaces across restarts (serialize SpaceManager state; tabs
   restore from session history).
 - `keyboard.paste({ html })` via the Electron clipboard module exposed over

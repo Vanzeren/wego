@@ -122,6 +122,27 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       return { id: profile.id, name: profile.name };
     },
 
+    // Import cookies from desktop Chrome (~/.config/google-chrome/Default)
+    // into the shared Default-profile session. Decryption uses the libsecret
+    // keyring; see chrome-import.js. CLI-only operation.
+    importChromeCookies: async () => {
+      const { session } = await import('electron');
+      const { importChromeCookieDescriptors } = await import('./chrome-import.js');
+      const { cookies, undecryptable, expired, total } = await importChromeCookieDescriptors();
+      const ses = session.fromPartition('persist:default');
+      let imported = 0;
+      let failed = 0;
+      for (const c of cookies) {
+        try {
+          await ses.cookies.set(c);
+          imported++;
+        } catch {
+          failed++;
+        }
+      }
+      return { imported, failed, undecryptable, expired, total };
+    },
+
     listTaskSpaces: () => spaces.listTaskSpaces(),
 
     createTaskSpace: (params) => {

@@ -65,6 +65,9 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   agent spaces inherit your logins. Extra profiles
   (`ego-browser profiles create <name>`) get isolated cookie/storage
   partitions; bind a space with `taskSpace(name, { profile: "Profile 2" })`.
+- Chrome onboarding: `ego-browser profiles import-chrome` decrypts and
+  imports your desktop Chrome cookies (libsecret/GNOME or KWallet/KDE
+  keyring) into the Default profile — verified to carry real login state.
 - Snapshot: accessibility-tree text with `[ref=N]` refs, roles/names, shadow
   DOM, same-origin iframes (`framePath`) AND cross-origin OOPIFs — captured
   from their own CDP targets, merged into one tree with frameId-tagged refs,
@@ -90,8 +93,8 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 - Selector-based actions (`css=`, `text=`, …) do not reach inside
   cross-origin OOPIFs — use a snapshot ref (`@N`) for those nodes. Nested
   OOPIF-in-OOPIF ownership checks are best-effort.
-- Chrome profile/cookie import not available; log in once inside ego lite
-  (Default profile persists across restarts).
+- Chrome import covers cookies (not extensions/bookmarks/history) and reads
+  the `Default` Chrome profile.
 - The remote-debugging endpoint is bound to 127.0.0.1 without auth; the bridge
   socket is `0600`. Do not expose either on shared machines.
 - Spaces and tab labels are in-memory; closing the browser ends all spaces.
