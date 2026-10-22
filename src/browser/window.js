@@ -41,6 +41,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     if (scope === 'ui') {
       settings.uiZoom = nextZoom(settings.uiZoom, dir);
       win.webContents.setZoomFactor(settings.uiZoom);
+      layoutViews(); // chrome geometry changed; re-place the views
     } else {
       const tab = activeTabWc();
       if (!tab || tab.isDestroyed()) return null;
@@ -173,11 +174,16 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   function layoutViews() {
     if (win.isDestroyed()) return;
     const [w, h] = win.getContentSize();
+    // The chrome UI lives in the (zoomed) chrome page: its 200px sidebar and
+    // 84px bars occupy 200·uiZoom / 84·uiZoom window pixels. View bounds must
+    // use the scaled offsets or the views overlap the chrome.
+    const offX = Math.round(SIDEBAR_WIDTH * settings.uiZoom);
+    const offY = Math.round(CHROME_HEIGHT * settings.uiZoom);
     const bounds = {
-      x: SIDEBAR_WIDTH,
-      y: CHROME_HEIGHT,
-      width: Math.max(0, w - SIDEBAR_WIDTH),
-      height: Math.max(0, h - CHROME_HEIGHT),
+      x: offX,
+      y: offY,
+      width: Math.max(0, w - offX),
+      height: Math.max(0, h - offY),
     };
     for (const space of spaces.allSpaces()) {
       for (const tab of space.tabs) {
