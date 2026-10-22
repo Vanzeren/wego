@@ -218,3 +218,29 @@ test('restoreState rejects corrupt data and activeTabIndex is honored', () => {
   const restored = sm3.getSpace(t.id);
   assert.equal(restored.activeTargetId, restored.tabs[1].targetId);
 });
+
+test('moveTab reorders within the space, clamps, keeps active tab', () => {
+  const sm = makeManager();
+  const t = sm.createTaskSpace({ name: 'order' });
+  sm.createTab(t.id, 'http://a/');
+  sm.createTab(t.id, 'http://b/');
+  const space = sm.getSpace(t.id);
+  const urls = () => space.tabs.map((x) => x.url);
+  assert.deepEqual(urls(), ['about:blank', 'http://a/', 'http://b/']);
+  sm.moveTab(t.id, space.tabs[2].targetId, 0);
+  assert.deepEqual(urls(), ['http://b/', 'about:blank', 'http://a/']);
+  // clamp beyond both ends
+  sm.moveTab(t.id, space.tabs[0].targetId, 99);
+  assert.deepEqual(urls(), ['about:blank', 'http://a/', 'http://b/']);
+  sm.moveTab(t.id, space.tabs[2].targetId, -5);
+  assert.deepEqual(urls(), ['http://b/', 'about:blank', 'http://a/']);
+  // active follows the tab object, not the slot
+  sm.activateTab(t.id, space.tabs[0].targetId);
+  sm.moveTab(t.id, space.tabs[0].targetId, 2);
+  assert.equal(space.activeTargetId, space.tabs[2].targetId);
+  assert.throws(() => sm.moveTab(t.id, 'nope', 0), /Tab not found/);
+  assert.throws(() => sm.moveTab(t.id, space.tabs[0].targetId, 1.5), /toIndex/);
+  // gated like other tab mutations
+  sm.handOffTaskSpace({ id: t.id });
+  assert.throws(() => sm.moveTab(t.id, space.tabs[0].targetId, 0), /user control/);
+});

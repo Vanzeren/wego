@@ -246,6 +246,11 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       case 'closeTab':
         if (userEditable && typeof msg.targetId === 'string') spaces.closeUserTab(space.id, msg.targetId);
         break;
+      case 'moveTab':
+        if (userEditable && typeof msg.targetId === 'string' && Number.isInteger(msg.toIndex)) {
+          spaces.moveUserTab(space.id, msg.targetId, msg.toIndex);
+        }
+        break;
       case 'activateTab':
         if (userEditable && typeof msg.targetId === 'string') spaces.activateUserTab(space.id, msg.targetId);
         break;

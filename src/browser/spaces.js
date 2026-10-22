@@ -302,6 +302,29 @@ export class SpaceManager extends EventEmitter {
     return { activated: true };
   }
 
+  #moveTabImpl(space, targetId, toIndex) {
+    const from = this.#findTabIndex(space, targetId);
+    if (!Number.isInteger(toIndex)) throw err('WEGO_INVALID_ARGUMENT', 'toIndex must be an integer');
+    const [tab] = space.tabs.splice(from, 1);
+    const clamped = Math.max(0, Math.min(toIndex, space.tabs.length));
+    space.tabs.splice(clamped, 0, tab);
+    this.#changed(space);
+    return { moved: true, from, to: clamped };
+  }
+
+  // Reorder a tab within its space; order persists via spaces.json.
+  moveTab(id, targetId, toIndex) {
+    const space = this.requireSpace(id);
+    this.#requireAgentControl(space);
+    return this.#moveTabImpl(space, targetId, toIndex);
+  }
+
+  // UI path (user gesture in the chrome): not gated by agent control.
+  moveUserTab(id, targetId, toIndex) {
+    const space = this.requireSpace(id);
+    return this.#moveTabImpl(space, targetId, toIndex);
+  }
+
   activateUserTab(id, targetId) {
     const space = this.requireSpace(id);
     this.#activate(space, targetId);

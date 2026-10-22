@@ -58,6 +58,10 @@
   .tab .close { flex: 0 0 auto; width: 18px; height: 18px; line-height: 16px; text-align: center;
     border-radius: 50%; color: var(--faint); font-size: 12px; }
   .tab .close:hover { background: var(--hover); color: var(--text); }
+  .tab { cursor: grab; }
+  #drop-indicator { position: absolute; top: 5px; bottom: 5px; width: 2px;
+    background: var(--accent); border-radius: 1px; pointer-events: none; z-index: 5; }
+  #tabstrip { position: relative; }
   #newtab { flex: 0 0 auto; height: 26px; width: 26px; border: 0; border-radius: 8px;
     background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; }
   #newtab:hover { background: var(--hover); color: var(--text); }

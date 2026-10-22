@@ -3,6 +3,8 @@ const CHROME_HEIGHT = 84;
 const SIDEBAR_WIDTH = 200;
 
 let state = { activeSpaceId: null, spaces: [] };
+let dragging = null; // active tab drag session; render() is frozen meanwhile
+let suppressNextClick = false; // swallow the click that follows a real drag
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -10,7 +12,91 @@ function activeSpace() {
   return state.spaces.find((s) => s.id === state.activeSpaceId) ?? null;
 }
 
+// ---- tab drag to reorder ------------------------------------------------
+
+function startTabDrag(e, tabEl, targetId) {
+  const strip = $('#tabstrip');
+  const startX = e.clientX;
+  let active = false;
+  let ghost = null;
+  let indicator = null;
+  let toIndex = -1;
+
+  const begin = () => {
+    active = true;
+    dragging = {};
+    const rect = tabEl.getBoundingClientRect();
+    ghost = tabEl.cloneNode(true);
+    Object.assign(ghost.style, {
+      position: 'fixed', left: `${rect.left}px`, top: `${rect.top}px`,
+      width: `${rect.width}px`, zIndex: 1000, pointerEvents: 'none',
+      opacity: 0.92, boxShadow: '0 6px 18px rgba(0,0,0,.45)',
+    });
+    document.body.appendChild(ghost);
+    tabEl.style.opacity = '0.35';
+    indicator = document.createElement('div');
+    indicator.id = 'drop-indicator';
+    strip.appendChild(indicator);
+    document.body.style.cursor = 'grabbing';
+  };
+
+  const computeIndex = (x) => {
+    const tabs = [...strip.querySelectorAll('.tab')].filter((t) => t !== tabEl);
+    for (let i = 0; i < tabs.length; i++) {
+      const r = tabs[i].getBoundingClientRect();
+      if (x < r.left + r.width / 2) return i;
+    }
+    return tabs.length;
+  };
+
+  const placeIndicator = () => {
+    const tabs = [...strip.querySelectorAll('.tab')].filter((t) => t !== tabEl);
+    const anchor = tabs[toIndex] ?? null;
+    const stripRect = strip.getBoundingClientRect();
+    const x = anchor ? anchor.getBoundingClientRect().left - 1
+      : (tabs.length ? tabs[tabs.length - 1].getBoundingClientRect().right + 1 : stripRect.left + 4);
+    Object.assign(indicator.style, { left: `${x - stripRect.left + strip.scrollLeft}px` });
+  };
+
+  const onMove = (ev) => {
+    if (!active && Math.abs(ev.clientX - startX) > 5) begin();
+    if (!active) return;
+    ev.preventDefault();
+    ghost.style.left = `${ev.clientX - 12}px`;
+    toIndex = computeIndex(ev.clientX);
+    placeIndicator();
+  };
+
+  const onUp = (ev) => {
+    window.removeEventListener('pointermove', onMove, true);
+    window.removeEventListener('pointerup', onUp, true);
+    document.body.style.cursor = '';
+    const wasActive = active;
+    const drop = toIndex;
+    ghost?.remove();
+    indicator?.remove();
+    tabEl.style.opacity = '';
+    dragging = null;
+    if (wasActive) {
+      ev.stopPropagation();
+      ev.preventDefault();
+      suppressNextClick = true;
+      setTimeout(() => { suppressNextClick = false; }, 0);
+      const from = [...$('#tabstrip').querySelectorAll('.tab')].indexOf(tabEl);
+      if (drop >= 0 && drop !== from) {
+        window.ego.action('moveTab', { targetId, toIndex: drop });
+      } else {
+        render(); // no move: repaint to clear any visual residue
+      }
+    }
+  };
+
+  window.addEventListener('pointermove', onMove, true);
+  window.addEventListener('pointerup', onUp, true);
+}
+
 function render() {
+  if (dragging) return; // strip is mid-drag; re-render after drop
   const space = activeSpace();
   const activeTab = space?.tabs.find((t) => t.targetId === space.activeTargetId) ?? null;
 
@@ -36,7 +122,14 @@ function render() {
       window.ego.action('closeTab', { targetId: tab.targetId });
     });
     el.append(label, close);
-    el.addEventListener('click', () => window.ego.action('activateTab', { targetId: tab.targetId }));
+    el.addEventListener('click', () => {
+      if (suppressNextClick) return;
+      window.ego.action('activateTab', { targetId: tab.targetId });
+    });
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('.close')) return;
+      startTabDrag(e, el, tab.targetId);
+    });
     strip.appendChild(el);
   }
   const plus = document.createElement('button');
