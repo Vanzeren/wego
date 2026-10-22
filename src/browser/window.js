@@ -114,7 +114,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
 
   function wireTabView(space, tab, view) {
     const wc = view.webContents;
-    wc.setZoomLevel(settings.pageZoomLevel);
+    // Applying a zoom (even level 0) forces a layout recompute that can land
+    // between getContentQuads and Input.dispatchMouseEvent on fresh tabs —
+    // skip it entirely at the default.
+    if (settings.pageZoomLevel !== 0) wc.setZoomLevel(settings.pageZoomLevel);
     wireZoomInput(wc);
     // Popups (window.open / target=_blank) become tabs in the same space.
     wc.setWindowOpenHandler(({ url }) => {
@@ -257,7 +260,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   }
 
   win.webContents.on('did-finish-load', () => {
-    win.webContents.setZoomFactor(settings.uiZoom); // no-op if applied before load
+    if (settings.uiZoom !== 1) win.webContents.setZoomFactor(settings.uiZoom);
     pushState();
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
