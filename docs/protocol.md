@@ -103,6 +103,15 @@ Tab mutation while `control === "user"` fails with
   - Rejects with `EGO_SNAPSHOT_FAILED` / `EGO_TASK_SPACE_USER_IN_CONTROL` /
     `EGO_WEB_CONTENTS_UNAVAILABLE`.
 
+### Zoom
+
+- `appZoom({ scope: "ui"|"page", dir: -1|0|1 })` → `{ uiZoom, pageZoomLevel }`
+  - `ui`: scales the whole chrome UI (zoomFactor ladder, ×1.1 steps).
+    `page`: browser-style layout zoom on the active tab (Chromium zoom-level
+    ladder, 0.5 steps; per-origin persistence is native). `dir: 0` resets.
+    Same code path as the `Ctrl +/-/0` (page) and `Ctrl+Shift +/-/0` (UI)
+    shortcuts. Settings persist in `~/.ego-lite/settings.json`.
+
 ### Clipboard
 
 - `paste({ id, targetId?, text?, html? })` → `"<id> pasted."`

@@ -256,6 +256,17 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       return captureSnapshot(wc, options, { targetId: realTargetId, rootFrameId: options.rootFrameId });
     },
 
+    // App-level zoom (same code path as the Ctrl/Ctrl+Shift +/- shortcuts).
+    appZoom: (params) => {
+      const scope = params?.scope;
+      const dir = params?.dir;
+      if (scope !== 'ui' && scope !== 'page') throw bad('scope must be "ui" or "page"');
+      if (!Number.isInteger(dir) || dir < -1 || dir > 1) throw bad('dir must be -1, 0, or 1');
+      const out = windowApi.applyZoom(scope, dir);
+      if (!out) throw err('EGO_WEB_CONTENTS_UNAVAILABLE', 'no active tab');
+      return out;
+    },
+
     getCDPEndpoint: () => ({
       webSocketDebuggerUrl: cdp.webSocketDebuggerUrl,
       httpEndpoint: cdp.httpEndpoint,

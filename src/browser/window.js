@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { SpaceManager } from './spaces.js';
 import { partitionForProfile as partitionFor } from './partitions.js';
+import { nextZoom, nextZoomLevel, zoomFromKey } from './zoom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,6 +19,49 @@ function normalizeUrl(input) {
 
 export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   const spacesFile = stateDir ? path.join(stateDir, 'spaces.json') : null;
+  const settingsFile = stateDir ? path.join(stateDir, 'settings.json') : null;
+
+  // Zoom settings: page zoom applies per tab (new tabs inherit the last
+  // value), UI zoom scales the whole chrome. Both persist.
+  const settings = (() => {
+    try { return { uiZoom: 1, pageZoomLevel: 0, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) }; }
+    catch { return { uiZoom: 1, pageZoomLevel: 0 }; }
+  })();
+  let settingsTimer = null;
+  const saveSettings = () => {
+    if (!settingsFile) return;
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(() => {
+      try { fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); } catch { /* ignore */ }
+    }, 400);
+  };
+
+  let activeTabWc = () => null; // wired after spaces exist
+  function applyZoom(scope, dir) {
+    if (scope === 'ui') {
+      settings.uiZoom = nextZoom(settings.uiZoom, dir);
+      win.webContents.setZoomFactor(settings.uiZoom);
+    } else {
+      const tab = activeTabWc();
+      if (!tab || tab.isDestroyed()) return null;
+      // setZoomLevel is browser-style page zoom: it changes the layout
+      // viewport (what sites and users expect from Ctrl+/-/0).
+      settings.pageZoomLevel = nextZoomLevel(tab.getZoomLevel(), dir);
+      tab.setZoomLevel(settings.pageZoomLevel);
+    }
+    saveSettings();
+    return { uiZoom: settings.uiZoom, pageZoomLevel: settings.pageZoomLevel };
+  }
+
+  function wireZoomInput(wc) {
+    wc.on('before-input-event', (event, input) => {
+      const z = zoomFromKey(input);
+      if (!z) return;
+      applyZoom(z.scope, z.dir);
+      event.preventDefault();
+    });
+  }
+
   let saveTimer = null;
   function scheduleSave(spaces) {
     if (!spacesFile) return;
@@ -70,6 +114,8 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
 
   function wireTabView(space, tab, view) {
     const wc = view.webContents;
+    wc.setZoomLevel(settings.pageZoomLevel);
+    wireZoomInput(wc);
     // Popups (window.open / target=_blank) become tabs in the same space.
     wc.setWindowOpenHandler(({ url }) => {
       spaces.addUserTab(space.id, url || 'about:blank');
@@ -111,6 +157,15 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       try { tab.view?.webContents.close(); } catch { /* already destroyed */ }
     },
   });
+
+  // Zoom shortcuts act on the active tab even when the chrome has focus.
+  activeTabWc = () => {
+    const space = spaces.getActive();
+    const tab = space?.tabs.find((t) => t.targetId === space.activeTargetId);
+    const wc = tab?.view?.webContents;
+    return wc && !wc.isDestroyed() ? wc : null;
+  };
+  wireZoomInput(win.webContents);
 
   function layoutViews() {
     if (win.isDestroyed()) return;
@@ -201,7 +256,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     spaces.addUserTab(personal.id, 'about:blank');
   }
 
-  win.webContents.on('did-finish-load', pushState);
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setZoomFactor(settings.uiZoom); // no-op if applied before load
+    pushState();
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.setPosition(120, 80);
   win.show();
@@ -210,6 +268,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   return {
     win,
     spaces,
+    applyZoom,
     focus() {
       if (win.isDestroyed()) return;
       if (win.isMinimized()) win.restore();

@@ -41,10 +41,12 @@ function request(sockPath, method, params) {
   });
 }
 
-async function setup(t, { failTabResolution = false } = {}) {
+async function setup(t, { failTabResolution = false, failPageZoom = false } = {}) {
   const dir = tmpdir();
   const sockPath = path.join(dir, 'bridge.sock');
   process.env.EGO_BRIDGE_SOCK = sockPath;
+  const zoomCalls = [];
+  let uiZoom = 1;
   const spaces = new SpaceManager({
     createView(space, tab) {
       if (failTabResolution) {
@@ -63,7 +65,15 @@ async function setup(t, { failTabResolution = false } = {}) {
   const highlights = [];
   const bridge = await startBridgeServer({
     spaces,
-    windowApi: { sendHighlight: (pt) => highlights.push(pt) },
+    windowApi: {
+      sendHighlight: (pt) => highlights.push(pt),
+      applyZoom: (scope, dir) => {
+        zoomCalls.push({ scope, dir });
+        if (scope === 'page' && failPageZoom) return null;
+        uiZoom = scope === 'ui' ? Math.round(uiZoom * (dir > 0 ? 1.1 : dir < 0 ? 1 / 1.1 : 1) * 100) / 100 : uiZoom;
+        return { uiZoom, pageZoomLevel: 0 };
+      },
+    },
     cdp: { webSocketDebuggerUrl: 'ws://127.0.0.1:1/devtools/browser/x', httpEndpoint: 'http://127.0.0.1:1' },
   });
   t.after(() => {
@@ -71,7 +81,7 @@ async function setup(t, { failTabResolution = false } = {}) {
     delete process.env.EGO_BRIDGE_SOCK;
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  return { spaces, sockPath, dir, highlights };
+  return { spaces, sockPath, dir, highlights, zoomCalls };
 }
 
 test('ping and meta endpoints', async (t) => {
@@ -218,4 +228,21 @@ test('rapid spaceChanged bursts are coalesced into one push per space', async (t
   // fire one more after the debounce window — never the uncoalesced burst.
   const forSpace = events.filter((e) => e.spaceId === t2.id);
   assert.ok(forSpace.length >= 1 && forSpace.length <= 2, `expected 1-2 pushes, got ${forSpace.length}`);
+});
+
+test('appZoom validates params, delegates to windowApi, reports failures', async (t) => {
+  const { sockPath, zoomCalls } = await setup(t);
+  let r = await request(sockPath, 'appZoom', { scope: 'nope', dir: 1 });
+  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  r = await request(sockPath, 'appZoom', { scope: 'ui', dir: 2 });
+  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  r = await request(sockPath, 'appZoom', { scope: 'ui', dir: 1 });
+  assert.deepEqual(zoomCalls, [{ scope: 'ui', dir: 1 }]);
+  assert.equal(r.result.uiZoom, 1.1);
+});
+
+test('appZoom page scope surfaces missing active tab', async (t) => {
+  const { sockPath } = await setup(t, { failPageZoom: true });
+  const r = await request(sockPath, 'appZoom', { scope: 'page', dir: 1 });
+  assert.equal(r.error.error_code, 'EGO_WEB_CONTENTS_UNAVAILABLE');
 });
