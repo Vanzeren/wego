@@ -159,7 +159,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
         webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
       });
       wireTabView(space, tab, view);
-      view.setBackgroundColor('#ffffff');
+      // Match the chrome background: when a re-attached view (z-order raise on
+      // tab switch) or a freshly created view has no compositor frame yet,
+      // the area fills with this color — white here reads as a jarring flash.
+      view.setBackgroundColor('#17181c');
       win.contentView.addChildView(view);
       view.setBounds({ x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 });
       const wc = view.webContents;
