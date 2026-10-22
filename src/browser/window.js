@@ -66,6 +66,14 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
 
   function wireZoomInput(wc) {
     wc.on('before-input-event', (event, input) => {
+      // Ctrl+F: open the find bar regardless of which webContents has focus.
+      if (input.type === 'keyDown' && input.control && !input.shift && !input.alt && !input.meta
+          && (input.key === 'f' || input.key === 'F')) {
+        win.webContents.send('findbar:open');
+        win.webContents.focus();
+        event.preventDefault();
+        return;
+      }
       const z = zoomFromKey(input);
       if (!z) return;
       applyZoom(z.scope, z.dir);
@@ -148,6 +156,15 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       }
     });
     wireZoomInput(wc);
+    // find-in-page results for the find bar (only from the active tab)
+    wc.on('found-in-page', (_e, result) => {
+      if (activeTabWc() === wc && !win.isDestroyed()) {
+        win.webContents.send('findbar:result', {
+          matches: result.matches ?? 0,
+          activeMatchOrdinal: result.activeMatchOrdinal ?? 0,
+        });
+      }
+    });
     // Popups (window.open / target=_blank) become tabs in the same space.
     wc.setWindowOpenHandler(({ url }) => {
       spaces.addUserTab(space.id, url || 'about:blank');
@@ -260,6 +277,9 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   spaces.on('taskState', () => { pushState(); scheduleSave(spaces); });
   win.on('resize', layoutViews);
 
+  // Find-in-page state (active tab only).
+  let findText = '';
+
   // User gestures mutate the active space directly and are only honored while
   // control === 'user'; agent control transitions go through SpaceManager.
   ipcMain.handle('ui:action', (_e, msg) => {
@@ -293,6 +313,18 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
         break;
       case 'activateTab':
         if (userEditable && typeof msg.targetId === 'string') spaces.activateUserTab(space.id, msg.targetId);
+        break;
+      // Find bar: meta operation over the active tab, never gated.
+      case 'find':
+        findText = typeof msg.text === 'string' ? msg.text : '';
+        if (findText) activeWc()?.findInPage(findText);
+        else activeWc()?.stopFindInPage('clearSelection');
+        break;
+      case 'findNext':
+        if (findText) activeWc()?.findInPage(findText, { forward: msg.forward !== false, findNext: true });
+        break;
+      case 'findClose':
+        activeWc()?.stopFindInPage('clearSelection');
         break;
       case 'switchSpace':
         if (typeof msg.id === 'number' && spaces.getSpace(msg.id)) spaces.setActiveSpace(msg.id);
