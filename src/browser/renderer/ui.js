@@ -173,7 +173,7 @@ function render() {
         return;
       }
       del.classList.add('confirm');
-      del.textContent = '删除?';
+      del.textContent = 'del';
       setTimeout(() => {
         del.classList.remove('confirm');
         del.textContent = '×';
