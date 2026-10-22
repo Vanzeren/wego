@@ -50,7 +50,8 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    backgroundColor: '#202124',
+    frame: false, // no Wayland/X11 server-side decoration; chrome draws its own
+    backgroundColor: '#17181c',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'renderer', 'preload.js'),
@@ -178,6 +179,12 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
         break;
       case 'takeover': if (space) spaces.handOffTaskSpace({ id: space.id }); break;
       case 'handback': if (space) spaces.takeOverTaskSpace({ id: space.id }); break;
+      // Window chrome: always the user's domain, never gated by space control.
+      case 'winControl':
+        if (msg.op === 'minimize') win.minimize();
+        else if (msg.op === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize();
+        else if (msg.op === 'close') win.close();
+        break;
     }
     pushState();
   });

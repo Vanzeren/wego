@@ -5,50 +5,101 @@
 <title>ego-lite</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; overflow: hidden; background: #202124; color: #e8eaed;
-    font: 13px/1.4 system-ui, sans-serif; user-select: none; }
+  :root {
+    --bg: #17181c;
+    --surface: #202127;
+    --surface-2: #26272e;
+    --hover: #2f313a;
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e6e6eb;
+    --muted: #9a9aa5;
+    --faint: #6d6d78;
+    --accent: #8f7bff;
+    --accent-dim: rgba(143, 123, 255, 0.16);
+    --green: #4caf7d;
+    --danger: #e5484d;
+  }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none;
+    -webkit-font-smoothing: antialiased; }
+
   /* Chrome total height must stay 84px (44 nav row + 40 tab strip). */
-  #navbar { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; }
-  #navbar button { width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent;
-    color: #e8eaed; font-size: 15px; cursor: pointer; }
-  #navbar button:hover { background: #3c4043; }
-  #omnibox { flex: 1; height: 30px; border: 0; border-radius: 15px; background: #303134;
-    color: #e8eaed; padding: 0 14px; outline: none; }
-  #omnibox:focus { background: #fff; color: #202124; }
-  #tabstrip { display: flex; align-items: flex-end; gap: 2px; height: 40px; padding: 0 8px;
-    overflow-x: auto; }
+  #navbar { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px;
+    -webkit-app-region: drag; }
+  #navbar button, #tabstrip button { -webkit-app-region: no-drag; }
+  .navbtn { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent;
+    color: var(--muted); font-size: 15px; cursor: pointer; transition: background .12s, color .12s; }
+  .navbtn:hover { background: var(--hover); color: var(--text); }
+  #omnibox { flex: 1; height: 32px; border: 1px solid transparent; border-radius: 10px;
+    background: #101116; color: var(--text); padding: 0 14px; outline: none; margin: 0 6px;
+    -webkit-app-region: no-drag; transition: border-color .12s, box-shadow .12s; }
+  #omnibox::placeholder { color: var(--faint); }
+  #omnibox:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+  #wincontrols { display: flex; align-items: center; gap: 2px; margin-left: 4px;
+    -webkit-app-region: no-drag; }
+  #wincontrols button { width: 34px; height: 30px; border: 0; border-radius: 8px;
+    background: transparent; color: var(--muted); font-size: 13px; cursor: pointer;
+    transition: background .12s, color .12s; }
+  #wincontrols button:hover { background: var(--hover); color: var(--text); }
+  #wincontrols #winc.close:hover { background: var(--danger); color: #fff; }
+
+  #tabstrip { display: flex; align-items: center; gap: 4px; height: 40px; padding: 0 8px;
+    overflow-x: auto; border-bottom: 1px solid var(--border); -webkit-app-region: drag; }
+  #tabstrip::-webkit-scrollbar { height: 0; }
   .tab { display: flex; align-items: center; gap: 6px; max-width: 200px; min-width: 80px;
-    height: 32px; padding: 0 10px; border-radius: 8px 8px 0 0; background: #303134;
-    color: #bdc1c6; cursor: pointer; }
+    height: 30px; padding: 0 6px 0 10px; border-radius: 8px; background: transparent;
+    color: var(--muted); cursor: pointer; -webkit-app-region: no-drag;
+    transition: background .12s, color .12s; }
+  .tab:hover { background: var(--surface-2); }
+  .tab.active { background: var(--surface-2); color: var(--text);
+    box-shadow: inset 0 1px 0 var(--accent); }
   .tab .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tab.active { background: #3c4043; color: #e8eaed; }
-  .tab .close { flex: 0 0 auto; margin-left: auto; padding: 0 3px; border-radius: 50%; }
-  .tab .close:hover { background: #5f6368; }
-  #newtab { height: 26px; width: 26px; border: 0; border-radius: 50%; background: transparent;
-    color: #e8eaed; font-size: 16px; cursor: pointer; margin-bottom: 3px; }
-  #newtab:hover { background: #3c4043; }
+  .tab .close { flex: 0 0 auto; width: 18px; height: 18px; line-height: 16px; text-align: center;
+    border-radius: 50%; color: var(--faint); font-size: 12px; }
+  .tab .close:hover { background: var(--hover); color: var(--text); }
+  #newtab { flex: 0 0 auto; height: 26px; width: 26px; border: 0; border-radius: 8px;
+    background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; }
+  #newtab:hover { background: var(--hover); color: var(--text); }
+
   #sidebar { position: fixed; left: 0; top: 84px; bottom: 0; width: 200px; overflow-y: auto;
-    border-right: 1px solid #3c4043; padding: 8px; }
-  #sidebar h2 { font-size: 11px; text-transform: uppercase; color: #9aa0a6; margin: 4px 4px 8px; }
-  .space { border-radius: 8px; padding: 8px 10px; cursor: pointer; margin-bottom: 4px; }
-  .space:hover { background: #2b2c2e; }
-  .space.active { background: #3c4043; }
+    border-right: 1px solid var(--border); padding: 10px 8px; }
+  #sidebar::-webkit-scrollbar { width: 6px; }
+  #sidebar::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+  #sidebar h2 { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--faint); margin: 2px 8px 10px; }
+  .space { border-radius: 10px; padding: 9px 10px; cursor: pointer; margin-bottom: 4px;
+    border: 1px solid transparent; transition: background .12s, border-color .12s; }
+  .space:hover { background: var(--surface); }
+  .space.active { background: var(--surface-2); border-color: var(--border); }
   .space .row { display: flex; align-items: center; gap: 6px; }
-  .space .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .badge { margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 8px; }
-  .badge.user { background: #1b3a29; color: #81c995; }
-  .badge.agent { background: #3a2e5c; color: #c4a7ff; }
-  .space .control, .space .agentstate { font-size: 11px; color: #9aa0a6; margin-top: 2px;
+  .space .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .badge { margin-left: auto; font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+  .badge.user { background: rgba(76, 175, 125, 0.15); color: var(--green); }
+  .badge.agent { background: var(--accent-dim); color: var(--accent); }
+  .space .control, .space .agentstate { font-size: 11px; color: var(--muted); margin-top: 3px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #banner { display: none; position: fixed; left: 200px; right: 0; top: 84px; height: 32px;
-    align-items: center; gap: 10px; padding: 0 14px; background: #3a2e5c; color: #e8e0ff; z-index: 10; }
-  #banner button { border: 1px solid #c4a7ff; background: transparent; color: #c4a7ff;
-    border-radius: 12px; padding: 2px 12px; cursor: pointer; }
-  #handback { display: none; position: fixed; right: 10px; top: 90px; z-index: 10;
-    border: 1px solid #5f6368; background: rgba(32,33,36,.85); color: #9aa0a6;
-    border-radius: 12px; padding: 3px 12px; cursor: pointer; font-size: 12px; }
+  .space .control::before { content: "●"; font-size: 8px; margin-right: 5px; }
+  .space .control.ctl-user::before { color: var(--green); }
+  .space .control.ctl-agent::before { color: var(--accent); }
+  .space .agentstate { color: var(--faint); font-style: italic; }
+
+  #banner { display: none; position: fixed; left: 200px; right: 0; top: 84px; height: 34px;
+    align-items: center; gap: 12px; padding: 0 16px; z-index: 10;
+    background: rgba(64, 50, 110, 0.92); backdrop-filter: blur(8px); color: #e8e0ff;
+    border-bottom: 1px solid rgba(143, 123, 255, 0.35); }
+  #banner button { border: 1px solid var(--accent); background: var(--accent); color: #fff;
+    border-radius: 8px; padding: 3px 14px; cursor: pointer; font-weight: 500;
+    transition: filter .12s; }
+  #banner button:hover { filter: brightness(1.15); }
+  #handback { display: none; position: fixed; right: 12px; top: 92px; z-index: 10;
+    border: 1px solid var(--border); background: rgba(23, 24, 28, 0.88); backdrop-filter: blur(8px);
+    color: var(--muted); border-radius: 8px; padding: 4px 12px; cursor: pointer; font-size: 12px;
+    transition: color .12s, border-color .12s; }
+  #handback:hover { color: var(--text); border-color: var(--accent); }
+
   #overlay { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
-  .ring { position: absolute; width: 24px; height: 24px; border: 3px solid #8ab4f8;
+  .ring { position: absolute; width: 24px; height: 24px; border: 3px solid var(--accent);
     border-radius: 50%; animation: ringfade .6s ease-out forwards; }
   @keyframes ringfade {
     from { opacity: 1; transform: scale(.6); }
@@ -58,10 +109,15 @@
 </head>
 <body>
   <div id="navbar">
-    <button id="back" title="Back">&#8592;</button>
-    <button id="forward" title="Forward">&#8594;</button>
-    <button id="reload" title="Reload">&#8635;</button>
+    <button class="navbtn" id="back" title="Back">&#8592;</button>
+    <button class="navbtn" id="forward" title="Forward">&#8594;</button>
+    <button class="navbtn" id="reload" title="Reload">&#8635;</button>
     <input id="omnibox" type="text" placeholder="Search or enter address" spellcheck="false">
+    <div id="wincontrols">
+      <button id="winmin" title="Minimize">&#8211;</button>
+      <button id="winmax" title="Maximize">&#9634;</button>
+      <button id="winc" class="close" title="Close">&#10005;</button>
+    </div>
   </div>
   <div id="tabstrip"></div>
   <div id="sidebar"><h2>Spaces</h2><div id="spaces"></div></div>

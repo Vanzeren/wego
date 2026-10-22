@@ -62,7 +62,7 @@ function render() {
     row.append(name, badge);
     el.appendChild(row);
     const control = document.createElement('div');
-    control.className = 'control';
+    control.className = `control ${s.control === 'agent' ? 'ctl-agent' : 'ctl-user'}`;
     control.textContent = s.control === 'agent' ? 'Agent in control' : 'You are in control';
     el.appendChild(control);
     if (s.agentState) {
@@ -106,6 +106,14 @@ $('#omnibox').addEventListener('keydown', (e) => {
 });
 $('#takeover').addEventListener('click', () => window.ego.action('takeover'));
 $('#handback').addEventListener('click', () => window.ego.action('handback'));
+$('#winmin').addEventListener('click', () => window.ego.action('winControl', { op: 'minimize' }));
+$('#winmax').addEventListener('click', () => window.ego.action('winControl', { op: 'maximize' }));
+$('#winc').addEventListener('click', () => window.ego.action('winControl', { op: 'close' }));
+// Double-click the drag region toggles maximize, like a native titlebar.
+$('#navbar').addEventListener('dblclick', (e) => {
+  if (e.target.closest('button, input')) return;
+  window.ego.action('winControl', { op: 'maximize' });
+});
 
 window.ego.onState((s) => { state = s; render(); });
 window.ego.onHighlight(({ x, y }) => flashRing(x, y));
