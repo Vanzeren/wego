@@ -79,6 +79,17 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       } catch { /* state dir not writable */ }
     }, 500);
   }
+  // Shared target-list cache: concurrent tab creations would otherwise each
+  // fetch and parse /json/list per poll iteration.
+  let targetsCache = { at: 0, list: null };
+  async function fetchTargets() {
+    if (targetsCache.list && Date.now() - targetsCache.at < 50) return targetsCache.list;
+    const res = await fetch(`${httpEndpoint}/json/list`);
+    const list = await res.json();
+    targetsCache = { at: Date.now(), list };
+    return list;
+  }
+
   // Resolve the real Chromium CDP targetId for a freshly created WebContentsView
   // by loading a unique marker URL and matching it in the DevTools target list.
   async function resolveCdpTargetId(marker, wc) {
@@ -86,12 +97,13 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     while (Date.now() < deadline) {
       if (wc.isDestroyed()) throw new Error('webContents destroyed');
       try {
-        const res = await fetch(`${httpEndpoint}/json/list`);
-        const targets = await res.json();
-        const hit = targets.find((t) => t.url === marker);
-        if (hit) return hit.id;
+        const hit = (await fetchTargets()).find((t) => t.url === marker);
+        if (hit) {
+          targetsCache = { at: 0, list: null }; // force refresh for the next marker
+          return hit.id;
+        }
       } catch { /* endpoint briefly unavailable */ }
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 25));
     }
     throw new Error(`CDP targetId resolution timed out for ${marker}`);
   }
@@ -141,7 +153,9 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   const spaces = new SpaceManager({
     createView(space, tab) {
       const view = new WebContentsView({
-        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+        // Agent tabs need timers/rAF at full rate for automation; user tabs
+        // get Chromium's normal background throttling to save CPU.
+        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: space.ownership === 'agent' ? false : true },
       });
       wireTabView(space, tab, view);
       view.setBackgroundColor('#ffffff');
@@ -182,6 +196,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   };
   wireZoomInput(win.webContents);
 
+  // Skip redundant setBounds: layoutViews runs on every spaceChanged (every
+  // navigation/title update), but the bounds only change on resize/zoom.
+  const lastBounds = new WeakMap();
+
   function layoutViews() {
     if (win.isDestroyed()) return;
     const [w, h] = win.getContentSize();
@@ -196,9 +214,13 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       width: Math.max(0, w - offX),
       height: Math.max(0, h - offY),
     };
+    const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
     for (const space of spaces.allSpaces()) {
       for (const tab of space.tabs) {
-        try { tab.view?.setBounds(bounds); } catch { /* destroyed */ }
+        if (!tab.view) continue;
+        if (lastBounds.get(tab.view) === key) continue;
+        lastBounds.set(tab.view, key);
+        try { tab.view.setBounds(bounds); } catch { /* destroyed */ }
       }
     }
     const active = spaces.getActive();

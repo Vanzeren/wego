@@ -55,12 +55,20 @@ function captureExpression(refBase, options) {
 }
 
 async function topCapture(webContents, options) {
-  const expression =
-    pageScriptSource +
-    '\n;globalThis.__wegoSnapshot.capture(' + JSON.stringify(cleanOptions(options)) + ');';
+  // The page program keeps its registry alive per document (SCRIPT_ID guard),
+  // so after the first capture we only re-run capture() — no need to ship and
+  // re-parse the full ~20KB source on every snapshot.
+  const optsJson = JSON.stringify(cleanOptions(options));
   let raw;
   try {
-    raw = await webContents.executeJavaScript(expression, true);
+    try {
+      // Fast path (repeat captures): registry already installed per document.
+      raw = await webContents.executeJavaScript(`globalThis.__wegoSnapshot.capture(${optsJson});`, true);
+    } catch {
+      // First capture in this document: ship the program, then capture.
+      raw = await webContents.executeJavaScript(
+        pageScriptSource + `\n;globalThis.__wegoSnapshot.capture(${optsJson});`, true);
+    }
   } catch (err) {
     if (!isUsable(webContents)) {
       throw egoError('WEGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents destroyed during snapshot');
@@ -172,19 +180,21 @@ export async function captureSnapshot(webContents, options = {}, context = {}) {
         blocksUsed: 0,
       };
       if (state.frameTargets.length) {
-        // Page session only for DOM.getFrameOwner ownership checks.
+        // Page session only for DOM.getFrameOwner ownership checks; cached
+        // across snapshots instead of attach/detach per call.
         let pageSession = null;
         if (context.targetId) {
           try {
-            pageSession = await cdp.attach(context.targetId);
-            await pageSession.send('DOM.enable').catch(() => {});
+            pageSession = await cdp.attachCached(context.targetId);
+            await pageSession.send('DOM.enable').catch(() => {
+              cdp._sessions.delete(context.targetId); // stale session
+              pageSession = null;
+            });
           } catch { pageSession = null; }
         }
-        try {
-          await mergeRemoteFrames(raw, raw.frames, options, pageSession, state);
-        } finally {
-          await pageSession?.detach();
-        }
+        // pageSession may be null: mergeRemoteFrames then skips the
+        // ownership check (same fallback as before).
+        await mergeRemoteFrames(raw, raw.frames, options, pageSession, state);
       }
     } catch { /* CDP unavailable: return the unmerged top capture */ }
   }

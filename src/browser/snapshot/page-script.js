@@ -430,6 +430,11 @@ function wegoSnapshotPageMain() {
 
   function capture(rawOptions) {
     const opts = rawOptions || {};
+    // Prune refs whose elements left the document; without this the registry
+    // grows unboundedly on long-lived pages.
+    for (const [id, el] of byId) {
+      if (!el.isConnected) byId.delete(id);
+    }
     const scope = (opts.scope === 'only_within_viewport' || opts.scope === 'subtree') ? opts.scope : 'full_page';
     let rootEl;
     if (scope === 'subtree') {

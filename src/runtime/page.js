@@ -439,13 +439,19 @@ export class Page {
     return { objectId, point: Page._quadCenter(quads[0]), session };
   }
 
-  // receipt: popups/dialog observed within 500ms after dispatch
+  // receipt: popups/dialog observed after dispatch. Exits early after a
+  // short quiet window instead of always waiting the full 500ms ceiling —
+  // dialogs and target=_blank popups arrive within milliseconds; popups
+  // scheduled by page JS beyond the quiet window are what
+  // waitForEvent('popup') exists for.
   async _receipt() {
     const beforePopups = this._popups.length;
     const dialogSeen = this._dialog ? this._dialog : null;
     const deadline = Date.now() + 500;
+    const quietUntil = Date.now() + 120;
     while (Date.now() < deadline) {
       if (this._dialog || this._popups.length > beforePopups) break;
+      if (Date.now() >= quietUntil) break;
       await new Promise((r) => setTimeout(r, 40));
     }
     const receipt = { ok: true };

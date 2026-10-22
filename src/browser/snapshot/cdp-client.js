@@ -9,6 +9,8 @@ export class MainCdpClient {
     this._opening = null;
     this._nextId = 1;
     this._pending = new Map();
+    this._sessions = new Map(); // targetId -> persistent session (attachCached)
+    this._targetsCache = { at: 0, list: null };
   }
 
   async _ensureWs() {
@@ -54,8 +56,14 @@ export class MainCdpClient {
     });
   }
 
+  // Short TTL: target lists shift on every tab/frame create, but a snapshot
+  // burst (top page + its OOPIFs) reads it repeatedly.
   async getTargets() {
+    if (this._targetsCache.list && Date.now() - this._targetsCache.at < 250) {
+      return this._targetsCache.list;
+    }
     const { targetInfos } = await this.send('Target.getTargets');
+    this._targetsCache = { at: Date.now(), list: targetInfos };
     return targetInfos;
   }
 
@@ -67,5 +75,15 @@ export class MainCdpClient {
       send: (method, params = {}) => this.send(method, params, sessionId),
       detach: () => this.send('Target.detachFromTarget', { sessionId }).catch(() => {}),
     };
+  }
+
+  // Persistent session for repeated use (e.g. the page session behind
+  // DOM.getFrameOwner checks). Dropped automatically if attach fails later.
+  async attachCached(targetId) {
+    const existing = this._sessions.get(targetId);
+    if (existing) return existing;
+    const session = await this.attach(targetId);
+    this._sessions.set(targetId, session);
+    return session;
   }
 }
