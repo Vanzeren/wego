@@ -15,7 +15,7 @@ import { CDPError } from './cdp.js';
 const DEFAULT_TIMEOUT = 30_000;
 
 function timeoutError(what, ms) {
-  return new CDPError(`Timeout ${ms}ms exceeded: ${what}`, 'EGO_OPERATION_FAILED');
+  return new CDPError(`Timeout ${ms}ms exceeded: ${what}`, 'WEGO_OPERATION_FAILED');
 }
 
 function poll(fn, { interval = 100 } = {}) {
@@ -51,7 +51,7 @@ class Download {
   suggestedFilename() { return this._suggested; }
   path() { return this._path; }
   async saveAs(absPath) {
-    if (!path.isAbsolute(absPath)) throw Object.assign(new Error('saveAs path must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    if (!path.isAbsolute(absPath)) throw Object.assign(new Error('saveAs path must be absolute'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     await this._done;
     await fs.promises.mkdir(path.dirname(absPath), { recursive: true });
     await fs.promises.copyFile(this._path, absPath);
@@ -77,11 +77,11 @@ class FileChooser {
   isMultiple() { return this.mode === 'selectMultiple'; }
 
   async setFiles(paths) {
-    if (this._done) throw new CDPError('File chooser already handled', 'EGO_OPERATION_FAILED');
+    if (this._done) throw new CDPError('File chooser already handled', 'WEGO_OPERATION_FAILED');
     const list = Array.isArray(paths) ? paths : [paths];
     for (const p of list) {
       if (typeof p !== 'string' || !path.isAbsolute(p)) {
-        throw Object.assign(new TypeError('setFiles expects absolute paths'), { error_code: 'EGO_INVALID_ARGUMENT' });
+        throw Object.assign(new TypeError('setFiles expects absolute paths'), { error_code: 'WEGO_INVALID_ARGUMENT' });
       }
     }
     const session = await this._page._session();
@@ -246,7 +246,7 @@ export class Page {
         : typeof target === 'function'
           ? (u) => !!target(u)
           : null;
-    if (!match) throw Object.assign(new TypeError('waitForURL expects string | RegExp | function'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    if (!match) throw Object.assign(new TypeError('waitForURL expects string | RegExp | function'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     const session = await this._session();
     await withTimeout(
       poll(async () => {
@@ -261,7 +261,7 @@ export class Page {
     const session = await this._session();
     const readyStateWanted = { load: 'complete', domcontentloaded: 'interactive', networkidle: null }[state];
     if (readyStateWanted === undefined && state !== 'networkidle') {
-      throw Object.assign(new TypeError(`waitForLoadState: unknown state ${state}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+      throw Object.assign(new TypeError(`waitForLoadState: unknown state ${state}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
     }
     if (state === 'networkidle') {
       await withTimeout(
@@ -282,7 +282,7 @@ export class Page {
 
   async waitForSelector(target, { state = 'visible', timeout = DEFAULT_TIMEOUT } = {}) {
     if (!['visible', 'attached', 'hidden'].includes(state)) {
-      throw Object.assign(new TypeError(`waitForSelector: unknown state ${state}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+      throw Object.assign(new TypeError(`waitForSelector: unknown state ${state}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
     }
     await withTimeout(
       poll(async () => {
@@ -337,7 +337,7 @@ export class Page {
       dl._path = path.join(dir, dl._guid);
       return dl;
     }
-    throw Object.assign(new TypeError(`waitForEvent: unknown event ${name}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+    throw Object.assign(new TypeError(`waitForEvent: unknown event ${name}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
   }
 
   async waitForFileChooser({ timeout = DEFAULT_TIMEOUT } = {}) {
@@ -361,11 +361,11 @@ export class Page {
     if (out.root !== undefined) {
       const refId = parseRefTarget(out.root);
       if (refId === null) {
-        throw Object.assign(new TypeError('snapshot root must be a @N ref from a snapshot'), { error_code: 'EGO_INVALID_ARGUMENT' });
+        throw Object.assign(new TypeError('snapshot root must be a @N ref from a snapshot'), { error_code: 'WEGO_INVALID_ARGUMENT' });
       }
       const entry = lookupRef(this, refId);
       if (!entry) {
-        throw new CDPError(`Ref @${refId} is not from this page's latest snapshot; re-snapshot and retry`, 'EGO_OPERATION_FAILED');
+        throw new CDPError(`Ref @${refId} is not from this page's latest snapshot; re-snapshot and retry`, 'WEGO_OPERATION_FAILED');
       }
       out.root = refId;
       if (entry.frameId) out.rootFrameId = entry.frameId;
@@ -548,7 +548,7 @@ export class Page {
         returnByValue: true,
       });
       if (verify.result.value !== String(text)) {
-        throw new CDPError(`fill failed: element value did not update (before=${JSON.stringify(before.result.value)})`, 'EGO_OPERATION_FAILED');
+        throw new CDPError(`fill failed: element value did not update (before=${JSON.stringify(before.result.value)})`, 'WEGO_OPERATION_FAILED');
       }
     }
     return this._receipt();
@@ -587,7 +587,7 @@ export class Page {
       arguments: [{ value: list.map((v) => (typeof v === 'string' ? v : v)) }],
       returnByValue: true,
     });
-    if (result.value?.error) throw new CDPError(`selectOption: option not found in ${target}`, 'EGO_OPERATION_FAILED');
+    if (result.value?.error) throw new CDPError(`selectOption: option not found in ${target}`, 'WEGO_OPERATION_FAILED');
     return this._receipt();
   }
 
@@ -599,7 +599,7 @@ export class Page {
 
   async press(target, key) {
     if (key === undefined) { key = target; target = null; } // press(key) convenience? keep strict: (target,key)
-    if (target == null) throw Object.assign(new TypeError('press(target, key) requires a target'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    if (target == null) throw Object.assign(new TypeError('press(target, key) requires a target'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     await session.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){ this.focus(); }' });
     await pressKey(session, key);
@@ -609,7 +609,7 @@ export class Page {
   async setInputFiles(target, absPaths) {
     const paths = Array.isArray(absPaths) ? absPaths : [absPaths];
     for (const p of paths) {
-      if (!path.isAbsolute(p)) throw Object.assign(new TypeError('setInputFiles paths must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      if (!path.isAbsolute(p)) throw Object.assign(new TypeError('setInputFiles paths must be absolute'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     }
     const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     const { node } = await session.send('DOM.describeNode', { objectId });
@@ -653,7 +653,7 @@ export class Page {
     });
     if (exceptionDetails) {
       const msg = exceptionDetails.exception?.description || exceptionDetails.text;
-      throw new CDPError(`evaluate failed: ${msg}`, 'EGO_OPERATION_FAILED');
+      throw new CDPError(`evaluate failed: ${msg}`, 'WEGO_OPERATION_FAILED');
     }
     return result.value;
   }
@@ -676,11 +676,11 @@ export class Page {
       awaitPromise: true,
       returnByValue: true,
     });
-    if (exceptionDetails) throw new CDPError(`fetch failed: ${exceptionDetails.text}`, 'EGO_OPERATION_FAILED');
+    if (exceptionDetails) throw new CDPError(`fetch failed: ${exceptionDetails.text}`, 'WEGO_OPERATION_FAILED');
     const out = result.value;
     const bodyBuf = Buffer.from(out.body, 'base64');
     if (saveAs !== undefined) {
-      if (!path.isAbsolute(saveAs)) throw Object.assign(new TypeError('fetch saveAs must be an absolute path'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      if (!path.isAbsolute(saveAs)) throw Object.assign(new TypeError('fetch saveAs must be an absolute path'), { error_code: 'WEGO_INVALID_ARGUMENT' });
       await fs.promises.mkdir(path.dirname(saveAs), { recursive: true });
       await fs.promises.writeFile(saveAs, bodyBuf);
     }
@@ -695,7 +695,7 @@ export class Page {
   async screenshot({ path: outPath } = {}) {
     const session = await this._session();
     if (outPath !== undefined && !path.isAbsolute(outPath)) {
-      throw Object.assign(new TypeError('screenshot path must be absolute'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      throw Object.assign(new TypeError('screenshot path must be absolute'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     }
     const finalPath = outPath || path.join(os.tmpdir(), `ego-shot-${crypto.randomBytes(6).toString('hex')}.png`);
     await fs.promises.mkdir(path.dirname(finalPath), { recursive: true });
@@ -757,7 +757,7 @@ export class Page {
       async insertText(text) { await (await page._session()).send('Input.insertText', { text: String(text) }); },
       async paste({ text, html } = {}) {
         if (typeof text !== 'string' && typeof html !== 'string') {
-          throw Object.assign(new TypeError('paste requires {text} and/or {html}'), { error_code: 'EGO_INVALID_ARGUMENT' });
+          throw Object.assign(new TypeError('paste requires {text} and/or {html}'), { error_code: 'WEGO_INVALID_ARGUMENT' });
         }
         // Browser-side clipboard write + native paste + clipboard restore.
         await page._ctx().ego._call('paste', {

@@ -35,13 +35,13 @@ export class SpaceManager extends EventEmitter {
 
   requireSpace(id) {
     const s = this.#spaces.get(id);
-    if (!s) throw err('EGO_TASK_SPACE_NOT_FOUND', `Task space not found: ${id}`);
+    if (!s) throw err('WEGO_TASK_SPACE_NOT_FOUND', `Task space not found: ${id}`);
     return s;
   }
 
   #requireAgentControl(space) {
     if (space.control !== 'agent') {
-      throw err('EGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${space.id} is under user control`);
+      throw err('WEGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${space.id} is under user control`);
     }
   }
 
@@ -113,7 +113,7 @@ export class SpaceManager extends EventEmitter {
         }
         return { id: s.id, taskId: s.taskId, name: s.name };
       }
-      throw err('EGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
+      throw err('WEGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
     }
     const space = this.#newSpace({ name, createdBy: 'agent', ownership: 'agent', control: 'agent', profileId });
     space.profileName = profileName ?? profileId;
@@ -261,7 +261,7 @@ export class SpaceManager extends EventEmitter {
 
   #findTabIndex(space, targetId) {
     const i = space.tabs.findIndex((t) => t.targetId === targetId);
-    if (i < 0) throw err('EGO_INVALID_ARGUMENT', `Tab not found: ${targetId} in space ${space.id}`);
+    if (i < 0) throw err('WEGO_INVALID_ARGUMENT', `Tab not found: ${targetId} in space ${space.id}`);
     return i;
   }
 
@@ -339,11 +339,11 @@ export class SpaceManager extends EventEmitter {
   async awaitTargetId(id, targetId) {
     const space = this.requireSpace(id);
     const tab = space.tabs.find((t) => t.targetId === targetId);
-    if (!tab) throw err('EGO_INVALID_ARGUMENT', `Tab not found: ${targetId} in space ${id}`);
+    if (!tab) throw err('WEGO_INVALID_ARGUMENT', `Tab not found: ${targetId} in space ${id}`);
     if (tab.targetIdReady) {
       const ok = await tab.targetIdReady.then(() => true, () => false);
       if (!ok || tab.targetId.startsWith('tab-')) {
-        throw err('EGO_OPERATION_FAILED', `CDP target resolution failed for tab in space ${id}`);
+        throw err('WEGO_OPERATION_FAILED', `CDP target resolution failed for tab in space ${id}`);
       }
     }
     return tab.targetId;

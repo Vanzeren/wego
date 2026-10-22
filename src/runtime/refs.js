@@ -1,6 +1,6 @@
 // Per-Page ref ledger: refId -> { framePath?, role, name }.
 // Populated from bridge snapshot() results; '@N' / 'ref=N' resolution goes
-// through the in-page registry (globalThis.__egoSnapshot) to get a CDP
+// through the in-page registry (globalThis.__wegoSnapshot) to get a CDP
 // objectId. Stale/absent refs raise ElementResolutionError{kind:'stale'}.
 
 export class ElementResolutionError extends Error {
@@ -62,7 +62,7 @@ export async function resolve(page, target) {
   const session = entry.frameId
     ? await page._ctx().cdp.attach(entry.frameId)
     : await page._session();
-  const expr = `(globalThis.__egoSnapshot && globalThis.__egoSnapshot.getRefElement(${refId})) || null`;
+  const expr = `(globalThis.__wegoSnapshot && globalThis.__wegoSnapshot.getRefElement(${refId})) || null`;
   const { result } = await session.send('Runtime.evaluate', {
     expression: expr,
     returnByValue: false,

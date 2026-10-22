@@ -1,4 +1,4 @@
-// ego-browser CLI: nodejs | skill | launch | help | version | doctor
+// wego-browser CLI: nodejs | skill | launch | help | version | doctor
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import net from 'node:net';
@@ -12,7 +12,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const VERSION = '0.1.0';
 
 function socketPath() {
-  return process.env.EGO_BRIDGE_SOCK || path.join(os.homedir(), '.ego-lite', 'bridge.sock');
+  return process.env.WEGO_BRIDGE_SOCK || path.join(os.homedir(), '.wego', 'bridge.sock');
 }
 
 function probeSocket(sockPath, timeoutMs = 300) {
@@ -67,11 +67,11 @@ function bridgeRequest(method, params = {}, timeoutMs = 5000) {
 // Start the browser if the bridge is unreachable, wait for readiness.
 async function ensureBrowser() {
   if (await probeSocket(socketPath())) return;
-  const electron = process.env.EGO_ELECTRON || 'electron';
+  const electron = process.env.WEGO_ELECTRON || 'electron';
   const child = spawn(electron, [repoRoot], {
     detached: true,
     stdio: 'ignore',
-    env: process.env, // EGO_BRIDGE_SOCK passes through when set
+    env: process.env, // WEGO_BRIDGE_SOCK passes through when set
   });
   child.unref();
   child.once('error', () => {}); // poll below reports the failure
@@ -90,13 +90,13 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-const USAGE = `ego-browser ${VERSION} — drive the ego lite browser on Linux
+const USAGE = `wego-browser ${VERSION} — drive the ego lite browser on Linux
 
-Usage: ego-browser <command>
+Usage: wego-browser <command>
 
 Commands:
   nodejs      Run a browser automation script (stdin or -e '<code>')
-  skill       Print the ego-browser agent skill guide
+  skill       Print the wego-browser agent skill guide
   launch      Start the ego lite browser and wait until ready
   profiles    List profiles; 'profiles create <name>' adds one
   version     Print the CLI version
@@ -109,11 +109,11 @@ Options for 'nodejs':
   -h, --help        Show 'nodejs' usage
 
 Environment:
-  EGO_BRIDGE_SOCK   Bridge socket path (default ~/.ego-lite/bridge.sock)
-  EGO_ELECTRON      Electron binary to launch (default: electron on PATH)
+  WEGO_BRIDGE_SOCK   Bridge socket path (default ~/.wego/bridge.sock)
+  WEGO_ELECTRON      Electron binary to launch (default: electron on PATH)
 `;
 
-const NODEJS_USAGE = `Usage: ego-browser nodejs [-e '<code>'] [--sdk-path <dir>]
+const NODEJS_USAGE = `Usage: wego-browser nodejs [-e '<code>'] [--sdk-path <dir>]
 
 Reads JavaScript from stdin (or -e) and runs it against the ego lite browser,
 starting the browser first when it is not running.
@@ -157,7 +157,7 @@ async function cmdNodejs(args) {
 
 function cmdSkill(args) {
   if (args.length > 0) {
-    console.error('usage: ego-browser skill');
+    console.error('usage: wego-browser skill');
     return 2;
   }
   const skillPath = path.join(repoRoot, 'skill-body', 'SKILL.md');
@@ -192,7 +192,7 @@ async function cmdProfiles(args) {
   if (sub === 'create') {
     const name = rest.join(' ').trim();
     if (!name) {
-      console.error('usage: ego-browser profiles create <name>');
+      console.error('usage: wego-browser profiles create <name>');
       return 2;
     }
     const profile = await bridgeRequest('createProfile', { name });
@@ -205,7 +205,7 @@ async function cmdProfiles(args) {
       if (rest[i] === '--profile' && rest[i + 1]) params.profileId = rest[++i];
       else if (rest[i] === '--chrome-dir' && rest[i + 1]) params.chromeDir = rest[++i];
       else {
-        console.error('usage: ego-browser profiles import-chrome [--profile <id>] [--chrome-dir <path>]');
+        console.error('usage: wego-browser profiles import-chrome [--profile <id>] [--chrome-dir <path>]');
         return 2;
       }
     }
@@ -216,7 +216,7 @@ async function cmdProfiles(args) {
       (r.failed ? ` (${r.failed} rejected)` : ''));
     return r.imported > 0 || r.total === 0 ? 0 : 1;
   }
-  console.error('usage: ego-browser profiles [list] | profiles create <name> | profiles import-chrome [--profile <id>] [--chrome-dir <path>]');
+  console.error('usage: wego-browser profiles [list] | profiles create <name> | profiles import-chrome [--profile <id>] [--chrome-dir <path>]');
   return 2;
 }
 
@@ -230,12 +230,12 @@ async function cmdDoctor() {
   const [major] = process.versions.node.split('.').map(Number);
   report(major >= 22, 'node >= 22', `node ${process.versions.node}`);
 
-  const electron = process.env.EGO_ELECTRON || 'electron';
+  const electron = process.env.WEGO_ELECTRON || 'electron';
   try {
     const { stdout } = await execFileP(electron, ['--version']);
     report(true, 'electron binary resolvable', stdout.trim());
   } catch {
-    report(false, 'electron binary resolvable', `'${electron}' not found on PATH (set EGO_ELECTRON)`);
+    report(false, 'electron binary resolvable', `'${electron}' not found on PATH (set WEGO_ELECTRON)`);
   }
 
   const display = process.env.DISPLAY || process.env.WAYLAND_DISPLAY;

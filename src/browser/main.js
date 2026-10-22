@@ -3,7 +3,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-app.setName('ego-lite');
+app.setName('wego');
+
+// One-time migration from the ego-lite era: carry state (spaces, profiles,
+// settings, cookies/partitions) over to the wego locations.
+function migrateDir(from, to) {
+  try {
+    if (!fs.existsSync(to) && fs.existsSync(from)) fs.renameSync(from, to);
+  } catch { /* keep both; new dir will be created fresh */ }
+}
+migrateDir(path.join(os.homedir(), '.ego-lite'), path.join(os.homedir(), '.wego'));
+migrateDir(path.join(app.getPath('appData'), 'ego-lite'), path.join(app.getPath('appData'), 'wego'));
 // Chromium picks a free port; the chosen port/ws path land in DevToolsActivePort.
 app.commandLine.appendSwitch('remote-debugging-port', '0');
 
@@ -16,13 +26,13 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => windowApi?.focus());
   app.whenReady().then(start).catch((e) => {
-    console.error('ego-lite failed to start:', e);
+    console.error('wego failed to start:', e);
     app.exit(1);
   });
 }
 
 async function start() {
-  const egoDir = path.join(os.homedir(), '.ego-lite');
+  const egoDir = path.join(os.homedir(), '.wego');
   fs.mkdirSync(egoDir, { recursive: true });
   fs.chmodSync(egoDir, 0o700);
 

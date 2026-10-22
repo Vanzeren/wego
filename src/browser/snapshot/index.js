@@ -51,26 +51,26 @@ export function configureSnapshot({ webSocketDebuggerUrl } = {}) {
 const REF_BLOCK = 100000;
 
 function captureExpression(refBase, options) {
-  return `globalThis.__egoSnapshotRefBase=${refBase};${pageScriptSource}\n;globalThis.__egoSnapshot.capture(${JSON.stringify(options)});`;
+  return `globalThis.__wegoSnapshotRefBase=${refBase};${pageScriptSource}\n;globalThis.__wegoSnapshot.capture(${JSON.stringify(options)});`;
 }
 
 async function topCapture(webContents, options) {
   const expression =
     pageScriptSource +
-    '\n;globalThis.__egoSnapshot.capture(' + JSON.stringify(cleanOptions(options)) + ');';
+    '\n;globalThis.__wegoSnapshot.capture(' + JSON.stringify(cleanOptions(options)) + ');';
   let raw;
   try {
     raw = await webContents.executeJavaScript(expression, true);
   } catch (err) {
     if (!isUsable(webContents)) {
-      throw egoError('EGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents destroyed during snapshot');
+      throw egoError('WEGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents destroyed during snapshot');
     }
     const msg = String((err && err.message) || err || 'unknown error')
       .replace(/^(?:Uncaught\s+)?Error:\s*/, '');
-    throw egoError('EGO_SNAPSHOT_FAILED', 'Snapshot failed: ' + msg);
+    throw egoError('WEGO_SNAPSHOT_FAILED', 'Snapshot failed: ' + msg);
   }
   if (!raw || typeof raw.content !== 'string' || !Array.isArray(raw.refs)) {
-    throw egoError('EGO_SNAPSHOT_FAILED', 'Snapshot failed: malformed in-page result');
+    throw egoError('WEGO_SNAPSHOT_FAILED', 'Snapshot failed: malformed in-page result');
   }
   return raw;
 }
@@ -137,7 +137,7 @@ function truncate(content, options) {
 // Subtree scope rooted at an OOPIF node: the root refId lives in the frame
 // target's registry, so capture inside that frame target directly.
 async function frameSubtreeCapture(frameTargetId, options) {
-  if (!cdp) throw egoError('EGO_SNAPSHOT_FAILED', 'Snapshot failed: frame capture unavailable (no CDP)');
+  if (!cdp) throw egoError('WEGO_SNAPSHOT_FAILED', 'Snapshot failed: frame capture unavailable (no CDP)');
   const session = await cdp.attach(frameTargetId);
   try {
     const { result, exceptionDetails } = await session.send('Runtime.evaluate', {
@@ -146,7 +146,7 @@ async function frameSubtreeCapture(frameTargetId, options) {
     });
     if (exceptionDetails || !result?.value || typeof result.value.content !== 'string') {
       const msg = exceptionDetails?.exception?.description || exceptionDetails?.text || 'no result';
-      throw egoError('EGO_SNAPSHOT_FAILED', 'Snapshot failed in frame: ' + msg);
+      throw egoError('WEGO_SNAPSHOT_FAILED', 'Snapshot failed in frame: ' + msg);
     }
     return { content: result.value.content, refs: tagFrameRefs(result.value.refs, frameTargetId) };
   } finally {
@@ -156,7 +156,7 @@ async function frameSubtreeCapture(frameTargetId, options) {
 
 export async function captureSnapshot(webContents, options = {}, context = {}) {
   if (!isUsable(webContents)) {
-    throw egoError('EGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable: missing or destroyed');
+    throw egoError('WEGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable: missing or destroyed');
   }
   if (context.rootFrameId) {
     const sub = await frameSubtreeCapture(context.rootFrameId, options);

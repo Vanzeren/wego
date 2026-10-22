@@ -43,7 +43,7 @@ test('resolve maps a live registry element to { objectId, session }; null means 
   const fakeSession = {
     send: async (method, params) => {
       assert.equal(method, 'Runtime.evaluate');
-      assert.match(params.expression, /__egoSnapshot\.getRefElement\(4\)/);
+      assert.match(params.expression, /__wegoSnapshot\.getRefElement\(4\)/);
       assert.equal(params.returnByValue, false);
       return { result: { objectId: 'obj-4' } };
     },

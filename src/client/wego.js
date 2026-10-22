@@ -1,4 +1,4 @@
-// NDJSON client for the ego-lite Linux bridge (docs/protocol.md).
+// NDJSON client for the wego bridge (docs/protocol.md).
 // Presents the native `globalThis.ego` surface: request/response by id,
 // server-push events via ego.onEvent, local task-space selection, and a
 // lazily-opened raw CDP WebSocket channel.
@@ -8,11 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 const DEFAULT_SOCK = () =>
-  process.env.EGO_BRIDGE_SOCK || path.join(os.homedir(), '.ego-lite', 'bridge.sock');
+  process.env.WEGO_BRIDGE_SOCK || path.join(os.homedir(), '.wego', 'bridge.sock');
 
 function invalidArg(message) {
   const err = new TypeError(message);
-  err.error_code = 'EGO_INVALID_ARGUMENT';
+  err.error_code = 'WEGO_INVALID_ARGUMENT';
   return err;
 }
 
@@ -22,7 +22,7 @@ function localError(message, error_code) {
   return err;
 }
 
-export async function connectEgo({ socketPath } = {}) {
+export async function connectWego({ socketPath } = {}) {
   const sockPath = socketPath || DEFAULT_SOCK();
   const sock = net.createConnection(sockPath);
 
@@ -73,7 +73,7 @@ export async function connectEgo({ socketPath } = {}) {
 
   sock.on('close', () => {
     for (const [, p] of pending) {
-      p.reject(localError('Bridge socket closed', 'EGO_BROWSER_UNAVAILABLE'));
+      p.reject(localError('Bridge socket closed', 'WEGO_BROWSER_UNAVAILABLE'));
     }
     pending.clear();
   });
@@ -84,7 +84,7 @@ export async function connectEgo({ socketPath } = {}) {
       pending.set(id, {
         resolve,
         reject: (err) => {
-          if (err && err.error_code === 'EGO_TASK_SPACE_USER_IN_CONTROL') controlCacheDirty = true;
+          if (err && err.error_code === 'WEGO_TASK_SPACE_USER_IN_CONTROL') controlCacheDirty = true;
           reject(err);
         },
       });
@@ -112,8 +112,8 @@ export async function connectEgo({ socketPath } = {}) {
     return controlCache.get(spaceId);
   }
 
-  const USER_IN_CONTROL = { error: 'Task space is under user control', error_code: 'EGO_TASK_SPACE_USER_IN_CONTROL' };
-  const NOT_SELECTED = { error: 'Task space not selected', error_code: 'EGO_TASK_SPACE_NOT_SELECTED' };
+  const USER_IN_CONTROL = { error: 'Task space is under user control', error_code: 'WEGO_TASK_SPACE_USER_IN_CONTROL' };
+  const NOT_SELECTED = { error: 'Task space not selected', error_code: 'WEGO_TASK_SPACE_NOT_SELECTED' };
 
   // Gate task-mutating calls. Returns an error object when gated, else null.
   async function gate(spaceId) {
@@ -137,7 +137,7 @@ export async function connectEgo({ socketPath } = {}) {
       const ws = new WebSocket(webSocketDebuggerUrl);
       await new Promise((resolve, reject) => {
         ws.onopen = resolve;
-        ws.onerror = () => reject(localError('CDP WebSocket connect failed', 'EGO_CDP_CHANNEL_UNAVAILABLE'));
+        ws.onerror = () => reject(localError('CDP WebSocket connect failed', 'WEGO_CDP_CHANNEL_UNAVAILABLE'));
       });
       ws.onmessage = (ev) => {
         if (typeof ego.onCDPMessage === 'function') {
@@ -249,7 +249,7 @@ export async function connectEgo({ socketPath } = {}) {
       throw invalidArg('snapshot(options) requires an object');
     }
     const id = requireSelected();
-    if (id === null) throw localError('Task space not selected', 'EGO_TASK_SPACE_NOT_SELECTED');
+    if (id === null) throw localError('Task space not selected', 'WEGO_TASK_SPACE_NOT_SELECTED');
     const gated = await gate(id);
     if (gated) throw localError(gated.error, gated.error_code);
     return call('snapshot', { id, ...(options ? { options } : {}) });
@@ -263,17 +263,17 @@ export async function connectEgo({ socketPath } = {}) {
         try { ego.onSendCDPMessageError(message, code); } catch { /* user handler */ }
       }
     };
-    if (selectedSpaceId === null) return fail('Task space not selected', 'EGO_TASK_SPACE_NOT_SELECTED');
+    if (selectedSpaceId === null) return fail('Task space not selected', 'WEGO_TASK_SPACE_NOT_SELECTED');
     const control = await controlFor(selectedSpaceId);
-    if (control === 'user') return fail('Task space is under user control', 'EGO_TASK_SPACE_USER_IN_CONTROL');
+    if (control === 'user') return fail('Task space is under user control', 'WEGO_TASK_SPACE_USER_IN_CONTROL');
     let ws;
     try {
       ws = await ensureCDPWs();
     } catch {
-      return fail('CDP channel unavailable', 'EGO_CDP_CHANNEL_UNAVAILABLE');
+      return fail('CDP channel unavailable', 'WEGO_CDP_CHANNEL_UNAVAILABLE');
     }
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return fail('CDP channel unavailable', 'EGO_CDP_CHANNEL_UNAVAILABLE');
+      return fail('CDP channel unavailable', 'WEGO_CDP_CHANNEL_UNAVAILABLE');
     }
     ws.send(jsonString);
   };

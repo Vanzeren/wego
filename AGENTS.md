@@ -1,21 +1,21 @@
 # Repository Guidelines (for agents working on this repo)
 
-Linux port of the ego-lite agent browser. Electron 38 shell + Unix-socket
-bridge + Node SDK (`ego-browser` CLI). ESM JavaScript, **zero npm
+wego — the browser you and your agents share (Linux). Electron 38 shell + Unix-socket
+bridge + Node SDK (`wego-browser` CLI). ESM JavaScript, **zero npm
 dependencies** — do not add any without explicit approval. Node ≥ 22, Electron
-≥ 38 (`electron` on PATH or `EGO_ELECTRON`).
+≥ 38 (`electron` on PATH or `WEGO_ELECTRON`).
 
 ## Architecture invariants
 
 - `docs/protocol.md` is the binding contract between the browser (bridge
   server) and the SDK (client + runtime). Change both sides together.
 - The bridge never holds per-connection state; the numeric space `id` travels
-  in every params object. `ego.useTaskSpace(id)` is client-side selection.
+  in every params object. `useTaskSpace(id)` is client-side selection.
 - Raw CDP never flows over the bridge socket. The SDK connects to the
   browser-level CDP WebSocket (`getCDPEndpoint()`) with flatten sessions.
 - Bridge responses must never expose placeholder `tab-N` targetIds;
   `SpaceManager.awaitTargetId` gates this. Views are created with a unique
-  marker URL (`about:blank#ego-…`) that is matched in `/json/list`.
+  marker URL (`about:blank#wego-…`) that is matched in `/json/list`.
 - **All tab views stay attached to the window at full visible bounds**; the
   active one is raised in z-order. Detaching or offscreen-parking collapses
   the layout viewport to 0x0 and silently breaks geometry/CDP Input.
@@ -27,17 +27,17 @@ dependencies** — do not add any without explicit approval. Node ≥ 22, Electr
 npm start          # or let the CLI auto-launch
 npm test           # unit/integration suite (node --test test/, no browser needed)
 node scripts/smoke.mjs   # end-to-end: snapshot/fill/click/screenshot/file-chooser
-ego-browser doctor
+wego-browser doctor
 ```
 
 Two test layers, both are regression gates:
 - `test/*.test.mjs` — fast unit/integration: SpaceManager, input mapping,
-  ref ledger, bridge server over a real socket (fake view hooks), ego client
+  ref ledger, bridge server over a real socket (fake view hooks), wego client
   against a scripted fake bridge. Runs without a display.
 - `scripts/smoke.mjs` — real-browser e2e; extend it when adding Page surface.
 For manual rounds keep a fixture server running:
 `node -e "…serve ./fixtures on 18923…"` (see git history or scripts/smoke.mjs
-for the server snippet), then `ego-browser nodejs <<'EOF' … EOF`.
+for the server snippet), then `wego-browser nodejs <<'EOF' … EOF`.
 
 Electron instances: the app holds a single-instance lock. `pkill -f
 "/usr/lib/electron38"` before relaunching, or your new code never runs.
@@ -45,7 +45,7 @@ Electron instances: the app holds a single-instance lock. `pkill -f
 ## Conventions
 
 - Public helper/API changes: update `skill-body/SKILL.md` (the guide printed
-  by `ego-browser skill`) and README in the same commit.
+  by `wego-browser skill`) and README in the same commit.
 - Agent-facing semantics follow upstream ego-lite docs; deviate only for real
   platform constraints and document the deviation in skill-body + README.
 
@@ -57,7 +57,7 @@ Electron instances: the app holds a single-instance lock. `pkill -f
   (see `test/input.test.mjs` Shift-chord case for the pattern).
 - New bridge method or changed params/results/error codes → extend
   `test/bridge.test.mjs`; client-side gating/validation →
-  `test/ego-client.test.mjs`; state-machine change → `test/spaces.test.mjs`.
+  `test/wego-client.test.mjs`; state-machine change → `test/spaces.test.mjs`.
 - New Page/SDK surface → extend `scripts/smoke.mjs` (real browser) and add
   fixture elements to `fixtures/` when the behavior needs them.
 - Changing existing behavior: update the affected tests; never delete or

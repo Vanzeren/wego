@@ -1,42 +1,43 @@
-# ego-lite for Linux
+# wego
 
-A Linux port of the [ego-lite](https://github.com/citrolabs/ego-lite) agent
-browser: one Chromium browser that you and your AI agents share. Agents work
-in isolated **task spaces** (their own tabs, their own control state) inside
-the same browser, driving pages through a compact JavaScript SDK over CDP —
-while your own browsing stays untouched.
+**The browser you and your agents share.** wego is a Linux browser where AI
+agents work in isolated **task spaces** inside the same browser you use —
+their own tabs, their own control state, your logins. It started as a Linux
+port of [ego-lite](https://github.com/citrolabs/ego-lite) and has since grown
+its own product direction (cross-origin OOPIF snapshots, profiles, Chrome
+onboarding, persistent spaces, HiDPI zoom, frameless UI).
 
 Built on Electron 38 (Chromium) + Node.js. Zero npm dependencies.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Electron app (ego-lite)                                  │
+│ Electron app (wego)                                      │
 │  BrowserWindow ─ chrome UI (tabs, omnibox, spaces sidebar)│
 │  WebContentsView per tab (persist:default session)        │
 │  SpaceManager ─ spaces, ownership, user/agent control      │
 │  Bridge server ─ NDJSON JSON-RPC over Unix socket          │
 │  Snapshot engine ─ in-page accessibility tree + refs       │
 └───────▲───────────────────────────────▲──────────────────┘
-        │ ~/.ego-lite/bridge.sock        │ ws://127.0.0.1 (CDP)
+        │ ~/.wego/bridge.sock        │ ws://127.0.0.1 (CDP)
 ┌───────┴────────┐               ┌───────┴────────┐
-│ ego-browser CLI │               │ CDP sessions   │
+│ wego-browser CLI │               │ CDP sessions   │
 │ nodejs / skill  │──────────────▶│ (flatten)      │
-│ src/client/ego  │  globalThis.ego│ src/runtime    │
+│ src/client/wego│  wego bindings│ src/runtime    │
 └────────────────┘               └────────────────┘
 ```
 
 ## Quick start
 
 Requirements: Linux with a display (Wayland or X11), Node.js ≥ 22, Electron 38
-(`electron` on PATH, or set `EGO_ELECTRON`).
+(`electron` on PATH, or set `WEGO_ELECTRON`).
 
 ```bash
 # from this directory
 npm start                    # launch the browser
-npm link                     # optional: put `ego-browser` on PATH
+npm link                     # optional: put `wego-browser` on PATH
 
 # drive it from any agent or shell
-ego-browser nodejs <<'EOF'
+wego-browser nodejs <<'EOF'
 const task = await taskSpace("research example");
 const page = task.page("p1");
 await page.goto("https://example.com");
@@ -45,38 +46,38 @@ await task.finish({ keep: [] });
 EOF
 ```
 
-`ego-browser nodejs` auto-launches the browser if it is not running.
+`wego-browser nodejs` auto-launches the browser if it is not running.
 
 CLI subcommands: `nodejs` (run a script), `skill` (print the full agent usage
 guide), `launch`, `doctor`, `version`, `help`.
 
-The agent skill lives in `skills/ego-browser/` (install it into your agent's
+The agent skill lives in `skills/wego-browser/` (install it into your agent's
 skills directory); `skill-body/SKILL.md` is the versioned usage guide that
-`ego-browser skill` prints.
+`wego-browser skill` prints.
 
 ## What works (verified end-to-end on Wayland/KDE)
 
 - Frameless window with custom min/max/close controls; drag the chrome
   background to move, double-click to maximize.
 - HiDPI zoom: `Ctrl +/-/0` page zoom (layout, per-origin), `Ctrl+Shift +/-/0`
-  whole-UI zoom; both persist (`~/.ego-lite/settings.json`), also adjustable
+  whole-UI zoom; both persist (`~/.wego/settings.json`), also adjustable
   via the `appZoom` bridge method.
 
 - Task spaces: create / resume-by-name / claim / list, numeric ids, ownership
   (`user`/`agent`) and control state; user-control gating returns
-  `EGO_TASK_SPACE_USER_IN_CONTROL` and blocks tabs, snapshot, and raw CDP.
+  `WEGO_TASK_SPACE_USER_IN_CONTROL` and blocks tabs, snapshot, and raw CDP.
 - Handoff / takeover (`task.handOff()`, `takeOverTaskSpace(id)`), agent
   progress text, `finish({ keep })` semantics.
 - Shared profile: all Default-profile spaces share `persist:default`, so
   agent spaces inherit your logins. Extra profiles
-  (`ego-browser profiles create <name>`) get isolated cookie/storage
+  (`wego-browser profiles create <name>`) get isolated cookie/storage
   partitions; bind a space with `taskSpace(name, { profile: "Profile 2" })`.
-- Chrome onboarding: `ego-browser profiles import-chrome` decrypts and
+- Chrome onboarding: `wego-browser profiles import-chrome` decrypts and
   imports your desktop Chrome cookies (libsecret/GNOME or KWallet/KDE
   keyring) — verified to carry real login state. Target another ego profile
   with `--profile "Profile 2"` or another Chrome profile dir with
   `--chrome-dir`.
-- Spaces persist across browser restarts (`~/.ego-lite/spaces.json`): names,
+- Spaces persist across browser restarts (`~/.wego/spaces.json`): names,
   ownership, tabs, and page URLs are restored; control resets to the user and
   an agent regains it by resuming the space by name.
 - Snapshot: accessibility-tree text with `[ref=N]` refs, roles/names, shadow
@@ -113,10 +114,10 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 
 ```
 src/browser/   Electron main: window, spaces, bridge server, snapshot engine, renderer UI
-src/client/    ego bindings client (Unix socket + CDP WebSocket)
+src/client/    wego bindings client (Unix socket + CDP WebSocket)
 src/runtime/   agent SDK: TaskSpace/Page, selectors, refs, input, CDP sessions
-src/cli/       ego-browser CLI (nodejs/skill/launch/doctor/...)
-skill-body/    usage guide printed by `ego-browser skill`
+src/cli/       wego-browser CLI (nodejs/skill/launch/doctor/...)
+skill-body/    usage guide printed by `wego-browser skill`
 skills/        entry agent skill + install reference
 docs/          bridge protocol contract
 fixtures/      local test pages; scripts/smoke.mjs end-to-end check

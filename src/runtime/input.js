@@ -40,21 +40,21 @@ function describeSingleKey(key) {
     else code = null;
     return { key: ch, code, vk: upper.charCodeAt(0), text: ch, modifier: null };
   }
-  throw Object.assign(new Error(`Unknown key: ${key}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+  throw Object.assign(new Error(`Unknown key: ${key}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
 }
 
 // 'ControlOrMeta+Shift+A' → { parts: [...], modifiers: bitmask }
 export function parseKeySpec(spec) {
   if (typeof spec !== 'string' || spec === '') {
-    throw Object.assign(new TypeError('key must be a non-empty string'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    throw Object.assign(new TypeError('key must be a non-empty string'), { error_code: 'WEGO_INVALID_ARGUMENT' });
   }
   const parts = spec.split('+').map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) throw Object.assign(new Error(`Unknown key: ${spec}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+  if (parts.length === 0) throw Object.assign(new Error(`Unknown key: ${spec}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
   let modifiers = 0;
   const keys = parts.map((p) => (p === 'ControlOrMeta' ? 'Control' : p));
   for (const k of keys.slice(0, -1)) {
     const d = describeSingleKey(k);
-    if (!d.modifier) throw Object.assign(new Error(`Non-modifier key in chord position: ${k}`), { error_code: 'EGO_INVALID_ARGUMENT' });
+    if (!d.modifier) throw Object.assign(new Error(`Non-modifier key in chord position: ${k}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
     modifiers |= MOD_BIT[d.modifier];
   }
   const main = describeSingleKey(keys[keys.length - 1]);

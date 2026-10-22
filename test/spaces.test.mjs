@@ -33,7 +33,7 @@ test('createTaskSpace creates with a first tab and monotonic ids; same name resu
 test('createTaskSpace rejects a user-owned name', () => {
   const sm = makeManager();
   sm.createPersonalSpace();
-  assert.throws(() => sm.createTaskSpace({ name: 'Personal' }), /EGO_TASK_SPACE_NAME_IN_USE|name in use/);
+  assert.throws(() => sm.createTaskSpace({ name: 'Personal' }), /WEGO_TASK_SPACE_NAME_IN_USE|name in use/);
 });
 
 test('claimTaskSpace flips ownership, renames, syncs taskId', () => {
@@ -45,7 +45,7 @@ test('claimTaskSpace flips ownership, renames, syncs taskId', () => {
   assert.equal(space.ownership, 'agent');
   assert.equal(space.control, 'agent');
   assert.throws(() => sm.claimTaskSpace({ id: 99 }), /Task space not found: 99/);
-  try { sm.claimTaskSpace({ id: 99 }); } catch (e) { assert.equal(e.error_code, 'EGO_TASK_SPACE_NOT_FOUND'); }
+  try { sm.claimTaskSpace({ id: 99 }); } catch (e) { assert.equal(e.error_code, 'WEGO_TASK_SPACE_NOT_FOUND'); }
 });
 
 test('handoff gates tab ops; takeover restores', () => {
@@ -57,7 +57,7 @@ test('handoff gates tab ops; takeover restores', () => {
     sm.createTab(t.id, 'http://x/');
     assert.unreachable();
   } catch (e) {
-    assert.equal(e.error_code, 'EGO_TASK_SPACE_USER_IN_CONTROL');
+    assert.equal(e.error_code, 'WEGO_TASK_SPACE_USER_IN_CONTROL');
   }
   assert.equal(sm.takeOverTaskSpace({ id: t.id }), `${t.id} has been taken over by the agent.`);
   const tab = sm.createTab(t.id, 'http://x/');
@@ -119,7 +119,7 @@ test('noteTargetId swaps placeholder and keeps activeTargetId consistent', () =>
   assert.equal(space.activeTargetId, 'REAL-Cdp-ID');
 });
 
-test('awaitTargetId resolves real id; failed resolution raises EGO_OPERATION_FAILED', async () => {
+test('awaitTargetId resolves real id; failed resolution raises WEGO_OPERATION_FAILED', async () => {
   const sm = makeManager({
     createView(space, tab) {
       tab.targetIdReady = tab.url.includes('bad')
@@ -133,7 +133,7 @@ test('awaitTargetId resolves real id; failed resolution raises EGO_OPERATION_FAI
   const okTab = sm.createTab(t.id, 'http://good/');
   assert.match(await sm.awaitTargetId(t.id, okTab.targetId), /^REAL-/);
   const badTab = sm.createTab(t.id, 'http://bad/');
-  await assert.rejects(() => sm.awaitTargetId(t.id, badTab.targetId), /EGO_OPERATION_FAILED|resolution failed/);
+  await assert.rejects(() => sm.awaitTargetId(t.id, badTab.targetId), /WEGO_OPERATION_FAILED|resolution failed/);
 });
 
 test('setAgentTaskState stores text and emits taskState', () => {

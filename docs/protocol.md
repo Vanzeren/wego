@@ -1,27 +1,28 @@
-# ego-lite Linux — Bridge Protocol
+# wego — Bridge Protocol
 
-The bridge is the Linux equivalent of ego-lite's closed-source native layer.
+The bridge is wego's native layer (originally modeled on ego-lite's
+closed-source bridge).
 The Electron main process exposes it over a Unix domain socket; the
-`ego-browser` CLI client (`src/client/ego.js`) consumes it and presents the
+`wego-browser` CLI client (`src/client/ego.js`) consumes it and presents the
 `globalThis.ego` surface documented in `docs/native-api.md`.
 
 ## Transport
 
-- Socket path: `$EGO_BRIDGE_SOCK`, else `~/.ego-lite/bridge.sock`.
+- Socket path: `$WEGO_BRIDGE_SOCK`, else `~/.wego/bridge.sock`.
 - Newline-delimited JSON (NDJSON). One message per line, UTF-8.
 - Request:  `{"id": <int>, "method": <string>, "params": <object>}`
 - Success:  `{"id": <int>, "result": <any>}`
 - Failure:  `{"id": <int>, "error": {"message": <string>, "error_code": <string>}}`
 - Server push (no `id`): `{"event": <string>, ...payload}`
 
-`error_code` values follow ego-lite: `EGO_BROWSER_UNAVAILABLE`,
-`EGO_INVALID_ARGUMENT`, `EGO_PROFILE_NOT_FOUND`, `EGO_SNAPSHOT_FAILED`,
-`EGO_TASK_SPACE_INACTIVE`, `EGO_TASK_SPACE_NOT_FOUND`,
-`EGO_TASK_SPACE_NOT_SELECTED`, `EGO_TASK_SPACE_USER_IN_CONTROL`,
-`EGO_TASK_SPACE_NAME_IN_USE`, `EGO_WEB_CONTENTS_UNAVAILABLE`,
-`EGO_OPERATION_FAILED`, `EGO_CDP_CHANNEL_UNAVAILABLE`, `EGO_CDP_SEND_FAILED`.
+`error_code` values (originally following ego-lite's taxonomy): `WEGO_BROWSER_UNAVAILABLE`,
+`WEGO_INVALID_ARGUMENT`, `WEGO_PROFILE_NOT_FOUND`, `WEGO_SNAPSHOT_FAILED`,
+`WEGO_TASK_SPACE_INACTIVE`, `WEGO_TASK_SPACE_NOT_FOUND`,
+`WEGO_TASK_SPACE_NOT_SELECTED`, `WEGO_TASK_SPACE_USER_IN_CONTROL`,
+`WEGO_TASK_SPACE_NAME_IN_USE`, `WEGO_WEB_CONTENTS_UNAVAILABLE`,
+`WEGO_OPERATION_FAILED`, `WEGO_CDP_CHANNEL_UNAVAILABLE`, `WEGO_CDP_SEND_FAILED`.
 
-Argument validation failures use `EGO_INVALID_ARGUMENT`.
+Argument validation failures use `WEGO_INVALID_ARGUMENT`.
 
 ## Methods
 
@@ -39,7 +40,7 @@ All task-space methods take the numeric space `id` explicitly in `params`.
 - `listProfiles()` → `{ profiles: [{ id, name, isDefault }] }`
   - `Default` always exists and maps to the shared `persist:default` session
     partition (logins carry over between all Default-profile spaces). Extra
-    profiles persist in `~/.ego-lite/profiles.json` and get isolated
+    profiles persist in `~/.wego/profiles.json` and get isolated
     partitions (`persist:profile-<id>`).
 - `createProfile({ name })` → `{ id, name }` — CLI/UI extension; not exposed
   through the `ego.*` agent bindings.
@@ -47,21 +48,21 @@ All task-space methods take the numeric space `id` explicitly in `params`.
   undecryptable, expired, total, profileId }` — decrypts desktop Chrome
   cookies (libsecret/KWallet keyring) and injects them into the session
   partition of `profileId` (default `Default`). `chromeDir` overrides the
-  Chrome profile directory. `EGO_PROFILE_NOT_FOUND` on unknown profileId.
+  Chrome profile directory. `WEGO_PROFILE_NOT_FOUND` on unknown profileId.
 
 ### Task spaces
 
 - `listTaskSpaces()` → `{ taskSpaces: [{ id, taskId, name, createdBy: "user"|"agent", ownership: "user"|"agent", control: "user"|"agent", profileId, profileName, recentTabTitles: string[] }] }`
 - `createTaskSpace({ name, profileId? })` → `{ id, taskId, name }`
   - `profileId` omitted, `"default"`, or `"Default"` ⇒ Default profile.
-    Unknown id ⇒ `EGO_PROFILE_NOT_FOUND`. Other errors:
-    `EGO_INVALID_ARGUMENT` (bad name/profileId type),
-    `EGO_TASK_SPACE_NAME_IN_USE` (an agent-owned
+    Unknown id ⇒ `WEGO_PROFILE_NOT_FOUND`. Other errors:
+    `WEGO_INVALID_ARGUMENT` (bad name/profileId type),
+    `WEGO_TASK_SPACE_NAME_IN_USE` (an agent-owned
     space with this name already exists; that case instead RESUMES the space
     and returns its descriptor — name collision with a *user-owned* space
     returns the error).
 - `claimTaskSpace({ id, name? })` → `{ id, taskId, name }`
-  - Errors: `EGO_TASK_SPACE_NOT_FOUND` (`"Task space not found: <id>"`).
+  - Errors: `WEGO_TASK_SPACE_NOT_FOUND` (`"Task space not found: <id>"`).
 - `closeTaskSpace({ id })` → `"<id> task space closed."` (destroys tabs+space)
 - `completeTaskSpace({ id })` → `"<id> task space completed."` (space stays,
   ownership flips to user)
@@ -78,7 +79,7 @@ All task-space methods take the numeric space `id` explicitly in `params`.
 - `activateTab({ id, targetId })` → `{ activated: true }`
 
 Tab mutation while `control === "user"` fails with
-`EGO_TASK_SPACE_USER_IN_CONTROL`.
+`WEGO_TASK_SPACE_USER_IN_CONTROL`.
 
 ### Snapshot
 
@@ -100,8 +101,8 @@ Tab mutation while `control === "user"` fails with
     under their iframe line; their refIds come from disjoint blocks
     (100000+) so they never collide with top-document refs. Ref resolution
     for `frameId` refs happens on a session attached to that frame target.
-  - Rejects with `EGO_SNAPSHOT_FAILED` / `EGO_TASK_SPACE_USER_IN_CONTROL` /
-    `EGO_WEB_CONTENTS_UNAVAILABLE`.
+  - Rejects with `WEGO_SNAPSHOT_FAILED` / `WEGO_TASK_SPACE_USER_IN_CONTROL` /
+    `WEGO_WEB_CONTENTS_UNAVAILABLE`.
 
 ### Zoom
 
@@ -110,7 +111,7 @@ Tab mutation while `control === "user"` fails with
     `page`: browser-style layout zoom on the active tab (Chromium zoom-level
     ladder, 0.5 steps; per-origin persistence is native). `dir: 0` resets.
     Same code path as the `Ctrl +/-/0` (page) and `Ctrl+Shift +/-/0` (UI)
-    shortcuts. Settings persist in `~/.ego-lite/settings.json`.
+    shortcuts. Settings persist in `~/.wego/settings.json`.
 
 ### Clipboard
 
@@ -141,7 +142,7 @@ The snapshot engine (`src/browser/snapshot/`) installs a registry in the page's
 MAIN world before/while capturing:
 
 ```js
-globalThis.__egoSnapshot = {
+globalThis.__wegoSnapshot = {
   token: string,                    // changes on every document navigation
   getRefElement(refId): Element|null, // null = stale/unknown ref
   getDocumentToken(): string,       // === token of the top document
@@ -149,6 +150,6 @@ globalThis.__egoSnapshot = {
 ```
 
 The SDK resolves `@N` refs by `Runtime.evaluate`-ing
-`__egoSnapshot.getRefElement(N)` with `returnByValue:false` to obtain an
+`__wegoSnapshot.getRefElement(N)` with `returnByValue:false` to obtain an
 `objectId`, then works via `DOM.*`/`Input.*` on the page CDP session. A `null`
 return or token mismatch ⇒ ref stale ⇒ caller must re-snapshot.

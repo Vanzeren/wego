@@ -1,7 +1,7 @@
-// Runtime entry: runScript(source, { scriptName }) executes an ego-browser
+// Runtime entry: runScript(source, { scriptName }) executes an wego-browser
 // script body with the helper surface injected as async-function parameters.
 
-import { connectEgo } from '../client/ego.js';
+import { connectWego } from '../client/wego.js';
 import { CDPManager, CDPError } from './cdp.js';
 import { TaskSpace } from './task-space.js';
 
@@ -44,7 +44,7 @@ function help(name) {
 }
 
 export async function runScript(source, { scriptName = 'script' } = {}) {
-  const ego = await connectEgo();
+  const ego = await connectWego();
   const cdp = new CDPManager(ego);
   const ctx = { ego, cdp };
 
@@ -58,14 +58,14 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
 
   async function taskSpace(nameOrId, options) {
     if (options !== undefined && (typeof options !== 'object' || options === null || Array.isArray(options))) {
-      throw Object.assign(new TypeError('taskSpace(name, options) options must be an object'), { error_code: 'EGO_INVALID_ARGUMENT' });
+      throw Object.assign(new TypeError('taskSpace(name, options) options must be an object'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     }
     if (typeof nameOrId === 'number') {
       const { taskSpaces } = await ego.listTaskSpaces();
       const found = taskSpaces.find((s) => s.id === nameOrId);
-      if (!found) throw new CDPError(`Task space not found: ${nameOrId}`, 'EGO_TASK_SPACE_NOT_FOUND');
+      if (!found) throw new CDPError(`Task space not found: ${nameOrId}`, 'WEGO_TASK_SPACE_NOT_FOUND');
       if (found.ownership !== 'agent') {
-        throw new CDPError(`Task space ${nameOrId} is not agent-owned (use takeOverTaskSpace)`, 'EGO_OPERATION_FAILED');
+        throw new CDPError(`Task space ${nameOrId} is not agent-owned (use takeOverTaskSpace)`, 'WEGO_OPERATION_FAILED');
       }
       const descriptor = await ego.claimTaskSpace(nameOrId);
       return materialize({ ...found, ...descriptor });
@@ -76,7 +76,7 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
       const descriptor = await ego.createTaskSpace(nameOrId, options?.profile);
       return materialize(descriptor);
     }
-    throw Object.assign(new TypeError('taskSpace(nameOrId) expects a name string or numeric id'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    throw Object.assign(new TypeError('taskSpace(nameOrId) expects a name string or numeric id'), { error_code: 'WEGO_INVALID_ARGUMENT' });
   }
 
   async function claimTaskSpace(id, name) {
@@ -91,7 +91,7 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
     await ego.takeOverTaskSpace();
     const { taskSpaces } = await ego.listTaskSpaces();
     const found = taskSpaces.find((s) => s.id === id);
-    if (!found) throw new CDPError(`Task space not found: ${id}`, 'EGO_TASK_SPACE_NOT_FOUND');
+    if (!found) throw new CDPError(`Task space not found: ${id}`, 'WEGO_TASK_SPACE_NOT_FOUND');
     const descriptor = await ego.claimTaskSpace(id);
     return materialize({ ...found, ...descriptor });
   }

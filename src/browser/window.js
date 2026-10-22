@@ -130,7 +130,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       return { action: 'deny' };
     });
     const trackUrl = (url) => {
-      if (url.startsWith('about:blank#ego-')) return; // targetId marker
+      if (url.startsWith('about:blank#wego-')) return; // targetId marker
       spaces.noteUrl(space.id, tab.targetId, url === NEWTAB_URL ? 'about:blank' : url);
     };
     wc.on('did-navigate', (_e, url) => trackUrl(url));
@@ -149,7 +149,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       view.setBounds({ x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 });
       const wc = view.webContents;
       const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
-      const marker = `about:blank#ego-${space.id}-${tab.targetId}`;
+      const marker = `about:blank#wego-${space.id}-${tab.targetId}`;
       tab.targetIdReady = (async () => {
         await wc.loadURL(marker);
         const realId = await resolveCdpTargetId(marker, wc);

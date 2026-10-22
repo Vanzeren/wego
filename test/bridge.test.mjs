@@ -44,7 +44,7 @@ function request(sockPath, method, params) {
 async function setup(t, { failTabResolution = false, failPageZoom = false } = {}) {
   const dir = tmpdir();
   const sockPath = path.join(dir, 'bridge.sock');
-  process.env.EGO_BRIDGE_SOCK = sockPath;
+  process.env.WEGO_BRIDGE_SOCK = sockPath;
   const zoomCalls = [];
   let uiZoom = 1;
   const spaces = new SpaceManager({
@@ -78,7 +78,7 @@ async function setup(t, { failTabResolution = false, failPageZoom = false } = {}
   });
   t.after(() => {
     bridge.close();
-    delete process.env.EGO_BRIDGE_SOCK;
+    delete process.env.WEGO_BRIDGE_SOCK;
     fs.rmSync(dir, { recursive: true, force: true });
   });
   return { spaces, sockPath, dir, highlights, zoomCalls };
@@ -110,9 +110,9 @@ test('profiles: list, create, persist to profiles.json', async (t) => {
 test('createTaskSpace: validation, profile lookup, first tab with real targetId, resume', async (t) => {
   const { sockPath } = await setup(t);
   let r = await request(sockPath, 'createTaskSpace', { name: '' });
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
   r = await request(sockPath, 'createTaskSpace', { name: 'x', profileId: 'Nope' });
-  assert.equal(r.error.error_code, 'EGO_PROFILE_NOT_FOUND');
+  assert.equal(r.error.error_code, 'WEGO_PROFILE_NOT_FOUND');
   r = await request(sockPath, 'createTaskSpace', { name: 'alpha' });
   assert.equal(r.result.name, 'alpha');
   const tabs = await request(sockPath, 'listTabs', { id: r.result.id });
@@ -122,54 +122,54 @@ test('createTaskSpace: validation, profile lookup, first tab with real targetId,
   assert.equal(resumed.result.id, r.result.id);
 });
 
-test('name collision with user-owned space is EGO_TASK_SPACE_NAME_IN_USE', async (t) => {
+test('name collision with user-owned space is WEGO_TASK_SPACE_NAME_IN_USE', async (t) => {
   const { sockPath } = await setup(t);
   const r = await request(sockPath, 'createTaskSpace', { name: 'Personal' });
-  assert.equal(r.error.error_code, 'EGO_TASK_SPACE_NAME_IN_USE');
+  assert.equal(r.error.error_code, 'WEGO_TASK_SPACE_NAME_IN_USE');
 });
 
-test('handoff blocks createTab and snapshot with EGO_TASK_SPACE_USER_IN_CONTROL; takeover restores', async (t) => {
+test('handoff blocks createTab and snapshot with WEGO_TASK_SPACE_USER_IN_CONTROL; takeover restores', async (t) => {
   const { sockPath } = await setup(t);
   const task = (await request(sockPath, 'createTaskSpace', { name: 'gated' })).result;
   await request(sockPath, 'handOffTaskSpace', { id: task.id });
   let r = await request(sockPath, 'createTab', { id: task.id, url: 'http://x/' });
-  assert.equal(r.error.error_code, 'EGO_TASK_SPACE_USER_IN_CONTROL');
+  assert.equal(r.error.error_code, 'WEGO_TASK_SPACE_USER_IN_CONTROL');
   r = await request(sockPath, 'snapshot', { id: task.id });
-  assert.equal(r.error.error_code, 'EGO_TASK_SPACE_USER_IN_CONTROL');
+  assert.equal(r.error.error_code, 'WEGO_TASK_SPACE_USER_IN_CONTROL');
   await request(sockPath, 'takeOverTaskSpace', { id: task.id });
   r = await request(sockPath, 'createTab', { id: task.id, url: 'http://x/' });
   assert.match(r.result.targetId, /^CDP-/);
 });
 
-test('snapshot without a live web contents is EGO_WEB_CONTENTS_UNAVAILABLE', async (t) => {
+test('snapshot without a live web contents is WEGO_WEB_CONTENTS_UNAVAILABLE', async (t) => {
   const { sockPath } = await setup(t);
   const task = (await request(sockPath, 'createTaskSpace', { name: 'snap' })).result;
   const r = await request(sockPath, 'snapshot', { id: task.id });
-  assert.equal(r.error.error_code, 'EGO_WEB_CONTENTS_UNAVAILABLE');
+  assert.equal(r.error.error_code, 'WEGO_WEB_CONTENTS_UNAVAILABLE');
 });
 
 test('snapshot option validation runs before gating', async (t) => {
   const { sockPath } = await setup(t);
   const task = (await request(sockPath, 'createTaskSpace', { name: 'snap-opts' })).result;
   let r = await request(sockPath, 'snapshot', { id: task.id, options: { scope: 'nope' } });
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
   r = await request(sockPath, 'snapshot', { id: task.id, options: { scope: 'subtree' } });
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT'); // root required
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT'); // root required
 });
 
-test('failed CDP target resolution surfaces as EGO_OPERATION_FAILED on createTab', async (t) => {
+test('failed CDP target resolution surfaces as WEGO_OPERATION_FAILED on createTab', async (t) => {
   const { sockPath } = await setup(t, { failTabResolution: true });
   const task = (await request(sockPath, 'createTaskSpace', { name: 'failer' })).result;
   const r = await request(sockPath, 'createTab', { id: task.id, url: 'http://x/' });
-  assert.equal(r.error.error_code, 'EGO_OPERATION_FAILED');
+  assert.equal(r.error.error_code, 'WEGO_OPERATION_FAILED');
 });
 
-test('unknown method and malformed params are EGO_INVALID_ARGUMENT', async (t) => {
+test('unknown method and malformed params are WEGO_INVALID_ARGUMENT', async (t) => {
   const { sockPath } = await setup(t);
   let r = await request(sockPath, 'doesNotExist');
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
   r = await request(sockPath, 'listTabs', { id: 'seven' });
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
 });
 
 test('setAgentTaskState, highlight, task lifecycle strings', async (t) => {
@@ -184,12 +184,12 @@ test('setAgentTaskState, highlight, task lifecycle strings', async (t) => {
   assert.equal(r.result, `${task.id} task space completed.`);
   // completed spaces are user-controlled: agent close is now gated
   r = await request(sockPath, 'closeTaskSpace', { id: task.id });
-  assert.equal(r.error.error_code, 'EGO_TASK_SPACE_USER_IN_CONTROL');
+  assert.equal(r.error.error_code, 'WEGO_TASK_SPACE_USER_IN_CONTROL');
   const other = (await request(sockPath, 'createTaskSpace', { name: 'life-2' })).result;
   r = await request(sockPath, 'closeTaskSpace', { id: other.id });
   assert.equal(r.result, `${other.id} task space closed.`);
   r = await request(sockPath, 'closeTaskSpace', { id: other.id });
-  assert.equal(r.error.error_code, 'EGO_TASK_SPACE_NOT_FOUND');
+  assert.equal(r.error.error_code, 'WEGO_TASK_SPACE_NOT_FOUND');
 });
 
 test('spaceChanged push events reach connected clients', async (t) => {
@@ -233,9 +233,9 @@ test('rapid spaceChanged bursts are coalesced into one push per space', async (t
 test('appZoom validates params, delegates to windowApi, reports failures', async (t) => {
   const { sockPath, zoomCalls } = await setup(t);
   let r = await request(sockPath, 'appZoom', { scope: 'nope', dir: 1 });
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
   r = await request(sockPath, 'appZoom', { scope: 'ui', dir: 2 });
-  assert.equal(r.error.error_code, 'EGO_INVALID_ARGUMENT');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
   r = await request(sockPath, 'appZoom', { scope: 'ui', dir: 1 });
   assert.deepEqual(zoomCalls, [{ scope: 'ui', dir: 1 }]);
   assert.equal(r.result.uiZoom, 1.1);
@@ -244,5 +244,5 @@ test('appZoom validates params, delegates to windowApi, reports failures', async
 test('appZoom page scope surfaces missing active tab', async (t) => {
   const { sockPath } = await setup(t, { failPageZoom: true });
   const r = await request(sockPath, 'appZoom', { scope: 'page', dir: 1 });
-  assert.equal(r.error.error_code, 'EGO_WEB_CONTENTS_UNAVAILABLE');
+  assert.equal(r.error.error_code, 'WEGO_WEB_CONTENTS_UNAVAILABLE');
 });

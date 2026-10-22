@@ -1,24 +1,24 @@
-[ego-browser:skill] ego-browser usage guide v0.1.0 (linux)
+[wego-browser:skill] wego-browser usage guide v0.1.0 (linux)
 
 ---
 version: "0.1.0"
 date: "2026-10-21"
 ---
 
-# ego-browser
+# wego-browser
 
 Call `help()` or `help("page.click")` inside a script to print signatures and
 uncommon options of APIs named below; it prints by itself, so do not wrap it in
 `console.log`. For installation or connection problems, read
-`references/install.md` in the ego-browser Skill directory.
+`references/install.md` in the wego-browser Skill directory.
 
 ## Run browser scripts
 
-Pass the script to `ego-browser nodejs`. On Linux and macOS shells (Bash, Zsh)
+Pass the script to `wego-browser nodejs`. On Linux and macOS shells (Bash, Zsh)
 use a heredoc:
 
 ```bash
-ego-browser nodejs <<'EOF'
+wego-browser nodejs <<'EOF'
 const task = await taskSpace("inspect example page");
 const page = task.page("p1");
 await page.goto("https://example.com");
@@ -33,7 +33,7 @@ the code and double quotes for JavaScript strings; single quotes within the code
 require shell quoting:
 
 ```bash
-ego-browser nodejs -e '
+wego-browser nodejs -e '
 const task = await taskSpace("inspect example page");
 await task.page("p1").goto("https://example.com");
 console.log(task.spaceId);
@@ -43,7 +43,7 @@ console.log(task.spaceId);
 For longer scripts, write a UTF-8 `.mjs` file and redirect it:
 
 ```bash
-ego-browser nodejs < /absolute/path/round-01.mjs
+wego-browser nodejs < /absolute/path/round-01.mjs
 ```
 
 Only Bash/Zsh-style shells are supported here; there is no PowerShell or cmd
@@ -77,9 +77,9 @@ with dynamic imports such as `await import("node:fs/promises")`. The script
 does not run in your shell's working directory, so use absolute paths for every
 file it reads or writes. It also does not inherit your shell's environment
 variables: `process.env` will not contain values you set before running
-`ego-browser`, so write every input directly into the script.
+`wego-browser`, so write every input directly into the script.
 
-ego-browser deliberately exposes a small custom API. It is not Playwright, even
+wego-browser deliberately exposes a small custom API. It is not Playwright, even
 where method names and options look similar. Use only the TaskSpace, Page,
 mouse, and keyboard APIs explicitly listed in this Skill. Do not
 infer Playwright methods such as `locator()`, `getByRole()`, `context()`,
@@ -87,7 +87,7 @@ infer Playwright methods such as `locator()`, `getByRole()`, `context()`,
 the documented `page.evaluate()` or `page.cdp()` escape hatches instead of
 guessing another method.
 
-When the user explicitly asks for ego-browser, start with a real browser command
+When the user explicitly asks for wego-browser, start with a real browser command
 and diagnose the CLI or installation only if it fails.
 
 ## Spaces, rounds, and pages
@@ -97,7 +97,7 @@ and diagnose the CLI or installation only if it fails.
   only when the user explicitly requests them.
 - Task space names are unique. `taskSpace(name)` resumes your own space with
   that name instead of creating a second one. If the name belongs to a
-  user-owned space, it fails with `EGO_TASK_SPACE_NAME_IN_USE`: ask the user
+  user-owned space, it fails with `WEGO_TASK_SPACE_NAME_IN_USE`: ask the user
   whether to work in that space (then `claimTaskSpace(id)`), or pick another
   name.
 - Never use a new TaskSpace to recover from a stuck, blocked, timed-out, or
@@ -119,7 +119,7 @@ await source.goto("https://example.com/releases");
 
 Do not inspect or select profiles unless the user explicitly requests a
 particular profile. Profiles are created outside the agent surface
-(`ego-browser profiles create <name>`, or `ego-browser profiles` to list).
+(`wego-browser profiles create <name>`, or `wego-browser profiles` to list).
 A profile applies only when creating a space; pass its `id` once:
 
 ```js
@@ -166,7 +166,7 @@ as user-owned when deciding whether a Page may be closed.
 
 ## Page operations
 
-ego-browser provides the following Page API:
+wego-browser provides the following Page API:
 
 - State and observation: `label`, `spaceId`, `openedBy`, `targetId`, `url()`,
   `title()`, `info()`, `snapshot()`, `screenshot()`
@@ -413,11 +413,11 @@ browser semantics.
   (`css=`, `text=`, …) do not reach inside cross-origin frames — use refs
   from a snapshot. `scope: "subtree"` works on refs INSIDE the frame; on the
   cross-origin iframe element's own ref it returns the iframe line only.
-- Chrome onboarding: `ego-browser profiles import-chrome` imports desktop
+- Chrome onboarding: `wego-browser profiles import-chrome` imports desktop
   Chrome cookies (GNOME libsecret or KDE KWallet keyring) into the Default
   profile. Extensions, bookmarks, and non-Chrome profiles are not imported.
-- The browser is launched with `electron <repo>`; set `EGO_ELECTRON` to point
-  at a specific Electron binary and `EGO_BRIDGE_SOCK` to override the bridge
-  socket path (`~/.ego-lite/bridge.sock` by default).
+- The browser is launched with `electron <repo>`; set `WEGO_ELECTRON` to point
+  at a specific Electron binary and `WEGO_BRIDGE_SOCK` to override the bridge
+  socket path (`~/.wego/bridge.sock` by default).
 
-[ego-browser:skill] end of guide v0.1.0
+[wego-browser:skill] end of guide v0.1.0

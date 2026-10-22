@@ -10,7 +10,7 @@ function err(code, message) {
 }
 
 function bad(message) {
-  return err('EGO_INVALID_ARGUMENT', message);
+  return err('WEGO_INVALID_ARGUMENT', message);
 }
 
 function reqId(params) {
@@ -71,7 +71,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
     clipboard = null; // unit tests without electron: paste reports unavailable
   }
 
-  const sockPath = process.env.EGO_BRIDGE_SOCK || path.join(os.homedir(), '.ego-lite', 'bridge.sock');
+  const sockPath = process.env.WEGO_BRIDGE_SOCK || path.join(os.homedir(), '.wego', 'bridge.sock');
   const stateDir = path.dirname(sockPath);
   fs.mkdirSync(stateDir, { recursive: true });
   try { fs.unlinkSync(sockPath); } catch { /* no stale socket */ }
@@ -142,7 +142,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
     importChromeCookies: async (params) => {
       const profileId = optString(params, 'profileId') ?? 'Default';
       const profile = profiles.find((p) => p.id === profileId);
-      if (!profile) throw err('EGO_PROFILE_NOT_FOUND', `Profile not found: ${profileId}`);
+      if (!profile) throw err('WEGO_PROFILE_NOT_FOUND', `Profile not found: ${profileId}`);
       const chromeDir = optString(params, 'chromeDir');
       const { session } = await import('electron');
       const { importChromeCookieDescriptors } = await import('./chrome-import.js');
@@ -171,7 +171,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       const profileId = optString(params, 'profileId');
       if (profileId !== undefined && profileId !== 'default') {
         const profile = profiles.find((p) => p.id === profileId);
-        if (!profile) throw err('EGO_PROFILE_NOT_FOUND', 'Profile not found');
+        if (!profile) throw err('WEGO_PROFILE_NOT_FOUND', 'Profile not found');
         return spaces.createTaskSpace({ name, profileId: profile.id, profileName: profile.name });
       }
       return spaces.createTaskSpace({ name, profileName: 'Default' });
@@ -200,7 +200,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       if (typeof params.y !== 'number' || !Number.isFinite(params.y)) throw bad('y must be a number');
       const space = spaces.requireSpace(id);
       if (space.control !== 'agent') {
-        throw err('EGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
+        throw err('WEGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
       }
       // Best-effort: the protocol string resolves regardless of UI delivery.
       try { windowApi.sendHighlight({ x: params.x, y: params.y }); } catch { /* window gone */ }
@@ -241,16 +241,16 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       const options = validateSnapshotOptions(params.options);
       const space = spaces.requireSpace(id);
       if (space.control !== 'agent') {
-        throw err('EGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
+        throw err('WEGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
       }
       const tab = targetId !== undefined
         ? space.tabs.find((t) => t.targetId === targetId)
         : space.tabs.find((t) => t.targetId === space.activeTargetId);
       const wc = tab?.view?.webContents;
       if (!wc || wc.isDestroyed()) {
-        throw err('EGO_WEB_CONTENTS_UNAVAILABLE', `Web contents unavailable: ${targetId ?? `space ${id} has no active tab`}`);
+        throw err('WEGO_WEB_CONTENTS_UNAVAILABLE', `Web contents unavailable: ${targetId ?? `space ${id} has no active tab`}`);
       }
-      if (!captureSnapshot) throw err('EGO_SNAPSHOT_FAILED', 'snapshot engine unavailable');
+      if (!captureSnapshot) throw err('WEGO_SNAPSHOT_FAILED', 'snapshot engine unavailable');
       // Real Chromium targetId enables OOPIF ownership checks in the engine.
       const realTargetId = await spaces.awaitTargetId(id, tab.targetId);
       return captureSnapshot(wc, options, { targetId: realTargetId, rootFrameId: options.rootFrameId });
@@ -263,7 +263,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       if (scope !== 'ui' && scope !== 'page') throw bad('scope must be "ui" or "page"');
       if (!Number.isInteger(dir) || dir < -1 || dir > 1) throw bad('dir must be -1, 0, or 1');
       const out = windowApi.applyZoom(scope, dir);
-      if (!out) throw err('EGO_WEB_CONTENTS_UNAVAILABLE', 'no active tab');
+      if (!out) throw err('WEGO_WEB_CONTENTS_UNAVAILABLE', 'no active tab');
       return out;
     },
 
@@ -279,7 +279,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       const id = reqId(params);
       const space = spaces.requireSpace(id);
       if (space.control !== 'agent') {
-        throw err('EGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
+        throw err('WEGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is under user control`);
       }
       if (params.text !== undefined && typeof params.text !== 'string') throw bad('text must be a string');
       if (params.html !== undefined && typeof params.html !== 'string') throw bad('html must be a string');
@@ -289,8 +289,8 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         ? space.tabs.find((t) => t.targetId === targetId)
         : space.tabs.find((t) => t.targetId === space.activeTargetId);
       const wc = tab?.view?.webContents;
-      if (!wc || wc.isDestroyed()) throw err('EGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable');
-      if (!clipboard) throw err('EGO_OPERATION_FAILED', 'clipboard unavailable');
+      if (!wc || wc.isDestroyed()) throw err('WEGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable');
+      if (!clipboard) throw err('WEGO_OPERATION_FAILED', 'clipboard unavailable');
       const prev = { text: clipboard.readText(), html: clipboard.readHTML() };
       clipboard.write({
         ...(params.text !== undefined ? { text: params.text } : {}),
@@ -326,7 +326,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
     } catch (e) {
       socket.write(`${JSON.stringify({
         id,
-        error: { message: e?.message ?? String(e), error_code: e?.error_code ?? 'EGO_OPERATION_FAILED' },
+        error: { message: e?.message ?? String(e), error_code: e?.error_code ?? 'WEGO_OPERATION_FAILED' },
       })}\n`);
     }
   }

@@ -1,17 +1,17 @@
 {
-  "name": "ego-lite-linux",
+  "name": "wego-browser",
   "version": "0.1.0",
-  "description": "ego-lite style agent-browser for Linux: Electron shell + native bridge + ego-browser SDK",
+  "description": "wego — the browser you and your agents share (Linux). Electron shell + native bridge + wego-browser SDK",
   "type": "module",
   "main": "src/browser/main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "cli": "node bin/ego-browser",
+    "cli": "node bin/wego-browser",
     "test": "node --test test/",
     "smoke": "node scripts/smoke.mjs"
   },
   "bin": {
-    "ego-browser": "bin/ego-browser"
+    "wego-browser": "bin/wego-browser"
   }
 }

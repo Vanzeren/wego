@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { connectEgo } from '../src/client/ego.js';
+import { connectWego } from '../src/client/wego.js';
 
 // Fake NDJSON bridge: handlers map method → fn(params) → result | {error:...} | throws.
 // Records calls for assertions.
@@ -25,7 +25,7 @@ function fakeBridge(t, handlers) {
         if (!line.trim()) continue;
         const msg = JSON.parse(line);
         calls.push(msg);
-        const h = handlers[msg.method] ?? (() => ({ message: 'unhandled', error_code: 'EGO_OPERATION_FAILED' }));
+        const h = handlers[msg.method] ?? (() => ({ message: 'unhandled', error_code: 'WEGO_OPERATION_FAILED' }));
         Promise.resolve()
           .then(() => h(msg.params ?? {}))
           .then((r) => {
@@ -50,11 +50,11 @@ function fakeBridge(t, handlers) {
 
 const AGENT_SPACE = { id: 7, taskId: 'demo', name: 'demo', ownership: 'agent', control: 'agent', createdBy: 'agent', profileId: 'Default', profileName: 'Default', recentTabTitles: [] };
 
-test('argument validation throws TypeError with EGO_INVALID_ARGUMENT', async (t) => {
+test('argument validation throws TypeError with WEGO_INVALID_ARGUMENT', async (t) => {
   const { sockPath } = await fakeBridge(t, {});
-  const ego = await connectEgo({ socketPath: sockPath });
+  const ego = await connectWego({ socketPath: sockPath });
   t.after(() => ego.close());
-  const check = (e) => e instanceof TypeError && e.error_code === 'EGO_INVALID_ARGUMENT';
+  const check = (e) => e instanceof TypeError && e.error_code === 'WEGO_INVALID_ARGUMENT';
   // sync-throwing bindings
   for (const fn of [
     () => ego.createTaskSpace(''),
@@ -77,11 +77,11 @@ test('argument validation throws TypeError with EGO_INVALID_ARGUMENT', async (t)
 
 test('task-scoped calls without selection resolve the NOT_SELECTED error object; snapshot rejects', async (t) => {
   const { sockPath } = await fakeBridge(t, { listTaskSpaces: () => ({ taskSpaces: [] }) });
-  const ego = await connectEgo({ socketPath: sockPath });
+  const ego = await connectWego({ socketPath: sockPath });
   t.after(() => ego.close());
   const r = await ego.createTab('http://x/');
-  assert.equal(r.error_code, 'EGO_TASK_SPACE_NOT_SELECTED');
-  await assert.rejects(() => ego.snapshot(), (e) => e.error_code === 'EGO_TASK_SPACE_NOT_SELECTED');
+  assert.equal(r.error_code, 'WEGO_TASK_SPACE_NOT_SELECTED');
+  await assert.rejects(() => ego.snapshot(), (e) => e.error_code === 'WEGO_TASK_SPACE_NOT_SELECTED');
 });
 
 test('useTaskSpace selection flows into request params', async (t) => {
@@ -89,7 +89,7 @@ test('useTaskSpace selection flows into request params', async (t) => {
     listTaskSpaces: () => ({ taskSpaces: [AGENT_SPACE] }),
     createTab: ({ url }) => ({ targetId: 'T1', url }),
   });
-  const ego = await connectEgo({ socketPath: sockPath });
+  const ego = await connectWego({ socketPath: sockPath });
   t.after(() => ego.close());
   assert.equal(ego.useTaskSpace(7), 7);
   await ego.createTab('http://x/');
@@ -103,13 +103,13 @@ test('user control gates mutating calls locally without a bridge round-trip', as
     listTaskSpaces: () => ({ taskSpaces: [userSpace] }),
     createTab: () => ({ targetId: 'T1' }),
   });
-  const ego = await connectEgo({ socketPath: sockPath });
+  const ego = await connectWego({ socketPath: sockPath });
   t.after(() => ego.close());
   ego.useTaskSpace(7);
   const r = await ego.createTab('http://x/');
-  assert.equal(r.error_code, 'EGO_TASK_SPACE_USER_IN_CONTROL');
+  assert.equal(r.error_code, 'WEGO_TASK_SPACE_USER_IN_CONTROL');
   assert.equal(calls.filter((c) => c.method === 'createTab').length, 0); // blocked locally
-  await assert.rejects(() => ego.snapshot(), (e) => e.error_code === 'EGO_TASK_SPACE_USER_IN_CONTROL');
+  await assert.rejects(() => ego.snapshot(), (e) => e.error_code === 'WEGO_TASK_SPACE_USER_IN_CONTROL');
 });
 
 test('sendCDPMessage failures reach onSendCDPMessageError, not the wire', async (t) => {
@@ -117,19 +117,19 @@ test('sendCDPMessage failures reach onSendCDPMessageError, not the wire', async 
   const { sockPath } = await fakeBridge(t, {
     listTaskSpaces: () => ({ taskSpaces: [userSpace] }),
   });
-  const ego = await connectEgo({ socketPath: sockPath });
+  const ego = await connectWego({ socketPath: sockPath });
   t.after(() => ego.close());
   const failures = [];
   ego.onSendCDPMessageError = (message, code) => failures.push({ message, code });
   // no selection
   await ego.sendCDPMessage(JSON.stringify({ id: 1, method: 'Browser.getVersion' }));
   await new Promise((r) => setTimeout(r, 50));
-  assert.deepEqual(failures.at(-1).code, 'EGO_TASK_SPACE_NOT_SELECTED');
+  assert.deepEqual(failures.at(-1).code, 'WEGO_TASK_SPACE_NOT_SELECTED');
   // user control
   ego.useTaskSpace(7);
   await ego.sendCDPMessage(JSON.stringify({ id: 1, method: 'Browser.getVersion' }));
   await new Promise((r) => setTimeout(r, 50));
-  assert.deepEqual(failures.at(-1).code, 'EGO_TASK_SPACE_USER_IN_CONTROL');
+  assert.deepEqual(failures.at(-1).code, 'WEGO_TASK_SPACE_USER_IN_CONTROL');
   // clearing the callback with a non-function is allowed
   ego.onSendCDPMessageError = null;
 });
@@ -137,9 +137,9 @@ test('sendCDPMessage failures reach onSendCDPMessageError, not the wire', async 
 test('bridge error objects propagate with error_code', async (t) => {
   const { sockPath } = await fakeBridge(t, {
     listTaskSpaces: () => ({ taskSpaces: [AGENT_SPACE] }),
-    claimTaskSpace: () => ({ error: 'Task space not found: 7', error_code: 'EGO_TASK_SPACE_NOT_FOUND' }),
+    claimTaskSpace: () => ({ error: 'Task space not found: 7', error_code: 'WEGO_TASK_SPACE_NOT_FOUND' }),
   });
-  const ego = await connectEgo({ socketPath: sockPath });
+  const ego = await connectWego({ socketPath: sockPath });
   t.after(() => ego.close());
-  await assert.rejects(() => ego.claimTaskSpace(7), (e) => e.error_code === 'EGO_TASK_SPACE_NOT_FOUND');
+  await assert.rejects(() => ego.claimTaskSpace(7), (e) => e.error_code === 'WEGO_TASK_SPACE_NOT_FOUND');
 });

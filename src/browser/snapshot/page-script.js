@@ -1,23 +1,23 @@
-// In-page snapshot program for the ego-lite snapshot engine.
+// In-page snapshot program for the wego snapshot engine.
 // This module exports SOURCE TEXT: index.js injects it into the page's MAIN
-// world via webContents.executeJavaScript. `egoSnapshotPageMain` must stay
+// world via webContents.executeJavaScript. `wegoSnapshotPageMain` must stay
 // fully self-contained (no references to module scope) because it is
 // stringified with Function#toString and re-evaluated inside the page.
 //
-// Injection is idempotent: a fresh document has no `__egoSnapshot`, so a full
+// Injection is idempotent: a fresh document has no `__wegoSnapshot`, so a full
 // install runs (new token, empty registry). Re-evaluation in the same
 // document hits the SCRIPT_ID guard and keeps the existing registry, so refs
 // stay stable across captures within one document.
 
-function egoSnapshotPageMain() {
-  const SCRIPT_ID = 'ego-lite-snapshot/1';
-  const prev = globalThis.__egoSnapshot;
+function wegoSnapshotPageMain() {
+  const SCRIPT_ID = 'wego-snapshot/1';
+  const prev = globalThis.__wegoSnapshot;
   if (prev && prev.__scriptId === SCRIPT_ID) return prev;
 
   const token = 'doc-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-  // OOPIF captures inject __egoSnapshotRefBase before this source so refs are
+  // OOPIF captures inject __wegoSnapshotRefBase before this source so refs are
   // unique across frames within one merged snapshot.
-  let nextRefId = 1 + (Number(globalThis.__egoSnapshotRefBase) || 0);
+  let nextRefId = 1 + (Number(globalThis.__wegoSnapshotRefBase) || 0);
   const byId = new Map();    // refId -> Element (direct references; also covers iframe-document elements)
   const byEl = new WeakMap(); // Element -> refId (keeps refs stable across repeated captures)
 
@@ -480,9 +480,9 @@ function egoSnapshotPageMain() {
     getDocumentToken() { return token; },
     capture,
   };
-  globalThis.__egoSnapshot = api;
+  globalThis.__wegoSnapshot = api;
   return api;
 }
 
-export const pageScriptSource = '(' + egoSnapshotPageMain.toString() + ')()';
+export const pageScriptSource = '(' + wegoSnapshotPageMain.toString() + ')()';
 export default pageScriptSource;

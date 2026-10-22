@@ -60,7 +60,7 @@ export class TaskSpace {
   // sync handle by label; auto-adopts 'p1' etc. only for existing labels
   page(label = 'p1') {
     const p = this._pages.get(label);
-    if (!p) throw new CDPError(`No page with label ${JSON.stringify(label)} in task space ${this.spaceId}`, 'EGO_OPERATION_FAILED');
+    if (!p) throw new CDPError(`No page with label ${JSON.stringify(label)} in task space ${this.spaceId}`, 'WEGO_OPERATION_FAILED');
     return p;
   }
 
@@ -95,13 +95,13 @@ export class TaskSpace {
   // adopt an existing tab descriptor or Page from another space
   async adopt(tabOrPage, { as } = {}) {
     const targetId = tabOrPage.targetId;
-    if (!targetId) throw Object.assign(new TypeError('adopt expects a tab descriptor or Page'), { error_code: 'EGO_INVALID_ARGUMENT' });
+    if (!targetId) throw Object.assign(new TypeError('adopt expects a tab descriptor or Page'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     return this._adoptTarget(targetId, tabOrPage.openedBy || 'agent', as);
   }
 
   async release(label) {
     const p = this._pages.get(label);
-    if (!p) throw new CDPError(`No page with label ${JSON.stringify(label)}`, 'EGO_OPERATION_FAILED');
+    if (!p) throw new CDPError(`No page with label ${JSON.stringify(label)}`, 'WEGO_OPERATION_FAILED');
     // detach our CDP session but leave the tab alive for the user
     const session = this._ctx.cdp.sessionFor(p.targetId);
     if (session) {
@@ -161,9 +161,9 @@ export class TaskSpace {
     for (;;) {
       const { taskSpaces } = await ego.listTaskSpaces();
       const mine = taskSpaces.find((s) => s.id === this.spaceId);
-      if (!mine) throw new CDPError(`Task space ${this.spaceId} no longer exists`, 'EGO_TASK_SPACE_NOT_FOUND');
+      if (!mine) throw new CDPError(`Task space ${this.spaceId} no longer exists`, 'WEGO_TASK_SPACE_NOT_FOUND');
       if (mine.control === 'agent') return mine;
-      if (Date.now() >= deadline) throw new CDPError(`waitForControl timed out for space ${this.spaceId}`, 'EGO_OPERATION_FAILED');
+      if (Date.now() >= deadline) throw new CDPError(`waitForControl timed out for space ${this.spaceId}`, 'WEGO_OPERATION_FAILED');
       await new Promise((r) => setTimeout(r, 500));
     }
   }

@@ -1,4 +1,4 @@
-// CDP session manager over the ego raw channel (src/client/ego.js).
+// CDP session manager over the ego raw channel (src/client/wego.js).
 // Flatten sessions: Target.attachToTarget {flatten:true}; each session
 // multiplexes command ids and routes events by sessionId.
 
@@ -23,12 +23,12 @@ class CDPSession {
   }
 
   send(method, params = {}, { timeout = DEFAULT_TIMEOUT } = {}) {
-    if (this.detached) return Promise.reject(new CDPError('CDP session detached', 'EGO_CDP_CHANNEL_UNAVAILABLE'));
+    if (this.detached) return Promise.reject(new CDPError('CDP session detached', 'WEGO_CDP_CHANNEL_UNAVAILABLE'));
     const id = this._nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this._pending.delete(id);
-        reject(new CDPError(`CDP command timed out: ${method}`, 'EGO_CDP_CHANNEL_UNAVAILABLE'));
+        reject(new CDPError(`CDP command timed out: ${method}`, 'WEGO_CDP_CHANNEL_UNAVAILABLE'));
       }, timeout);
       this._pending.set(id, { resolve, reject, timer, method });
       this._manager._sendRaw({ id, sessionId: this.sessionId, method, params });
@@ -66,10 +66,10 @@ class CDPSession {
     if (!p) return;
     this._pending.delete(id);
     clearTimeout(p.timer);
-    p.reject(new CDPError(error.message || 'CDP error', error.error_code || 'EGO_OPERATION_FAILED'));
+    p.reject(new CDPError(error.message || 'CDP error', error.error_code || 'WEGO_OPERATION_FAILED'));
   }
 
-  _failAll(reason, code = 'EGO_CDP_CHANNEL_UNAVAILABLE') {
+  _failAll(reason, code = 'WEGO_CDP_CHANNEL_UNAVAILABLE') {
     for (const [id, p] of this._pending) {
       clearTimeout(p.timer);
       p.reject(new CDPError(reason, code));
@@ -89,7 +89,7 @@ export class CDPManager {
 
     ego.onCDPMessage = (raw) => this._onMessage(raw);
     ego.onSendCDPMessageError = (message, error_code) => {
-      const code = error_code || 'EGO_CDP_SEND_FAILED';
+      const code = error_code || 'WEGO_CDP_SEND_FAILED';
       this._browser._failAll(message, code);
       for (const s of this._sessions.values()) s._failAll(message, code);
     };

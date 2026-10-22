@@ -1,13 +1,13 @@
-# Installing ego lite (Linux)
+# Installing wego (Linux)
 
-ego lite on Linux runs from a source checkout: an Electron browser shell plus
-the `ego-browser` CLI. There is no installer package yet.
+wego on Linux runs from a source checkout: an Electron browser shell plus
+the `wego-browser` CLI. There is no installer package yet.
 
 ## Requirements
 
 - Node.js >= 22 on PATH
 - Electron >= 38 on PATH (`electron --version` must work), or set
-  `EGO_ELECTRON` to the binary
+  `WEGO_ELECTRON` to the binary
 - A display: `DISPLAY` (X11) or `WAYLAND_DISPLAY` set
 
 ## Steps
@@ -19,7 +19,7 @@ the `ego-browser` CLI. There is no installer package yet.
 2. Put the CLI on PATH, either way:
 
    ```bash
-   npm link          # from the repo root; exposes `ego-browser`
+   npm link          # from the repo root; exposes `wego-browser`
    ```
 
    or
@@ -31,7 +31,7 @@ the `ego-browser` CLI. There is no installer package yet.
 3. Verify the environment:
 
    ```bash
-   ego-browser doctor
+   wego-browser doctor
    ```
 
    Every line must be PASS (a SKIP for the bridge socket is fine when the
@@ -40,20 +40,20 @@ the `ego-browser` CLI. There is no installer package yet.
 4. First launch:
 
    ```bash
-   ego-browser launch
+   wego-browser launch
    ```
 
    This starts the browser and waits until its bridge is ready. The first
    launch migrates nothing: Chrome profile import is not available on Linux
    yet, so existing Chrome logins, cookies, and bookmarks do not carry over.
-   Sign in to the sites you need inside ego lite — do it yourself in the
+   Sign in to the sites you need inside wego — do it yourself in the
    browser window, or let the agent hand a Space off to you to log in.
 
 ## Notes
 
-- Bridge socket: `~/.ego-lite/bridge.sock` (override with `EGO_BRIDGE_SOCK`).
+- Bridge socket: `~/.wego/bridge.sock` (override with `WEGO_BRIDGE_SOCK`).
 - The `nodejs` subcommand auto-starts the browser when it is not running, so
-  `ego-browser launch` is optional.
-- If `ego-browser skill` fails with "skill guide not found", the CLI is being
+  `wego-browser launch` is optional.
+- If `wego-browser skill` fails with "skill guide not found", the CLI is being
   run from outside the repo layout; reinstall via `npm link` from the repo
   root.
