@@ -304,6 +304,13 @@ export class SpaceManager extends EventEmitter {
       const next = space.tabs[Math.min(i, space.tabs.length - 1)];
       space.activeTargetId = next ? next.targetId : null;
     }
+    // A space always keeps at least one tab: with none, the layout would keep
+    // showing whatever other space's view was last raised. (Space teardown
+    // paths — closeTaskSpace/closeUserSpace — bypass this hook.)
+    if (space.tabs.length === 0) {
+      this.#addTab(space, 'about:blank');
+      return;
+    }
     this.#changed(space);
   }
 

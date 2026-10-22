@@ -257,6 +257,32 @@ test('createUserSpace: named/default naming, blank tab, becomes active', () => {
   assert.match(anon.name, /^Space \d+$/);
 });
 
+test('closing the last tab of a space opens a blank tab (never zero tabs)', () => {
+  const sm = makeManager();
+  const t = sm.createTaskSpace({ name: 'drain' });
+  const space = sm.getSpace(t.id);
+  sm.closeTab(t.id, space.tabs[0].targetId);
+  assert.equal(space.tabs.length, 1);
+  assert.equal(space.tabs[0].url, 'about:blank');
+  assert.equal(space.activeTargetId, space.tabs[0].targetId);
+  // same via the user path
+  sm.closeUserTab(t.id, space.tabs[0].targetId);
+  assert.equal(space.tabs.length, 1);
+  assert.equal(space.tabs[0].url, 'about:blank');
+});
+
+test('closeTaskSpace bypasses the auto-replacement (space fully destroyed)', () => {
+  const destroyed = [];
+  const sm = makeManager({ destroyView: (s, tab) => destroyed.push(tab.url) });
+  sm.createPersonalSpace();
+  const t = sm.createTaskSpace({ name: 'gone' });
+  sm.createTab(t.id, 'http://x/');
+  sm.closeTaskSpace({ id: t.id });
+  assert.equal(sm.getSpace(t.id), null);
+  // both tabs destroyed, no replacement blank created
+  assert.deepEqual(destroyed.sort(), ['about:blank', 'http://x/'].sort());
+});
+
 test('closeUserSpace: ungated, destroys views, switches active, never empty', () => {
   const destroyed = [];
   const sm = makeManager({ destroyView: (space, tab) => destroyed.push(tab.targetId) });
