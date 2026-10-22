@@ -153,9 +153,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   const spaces = new SpaceManager({
     createView(space, tab) {
       const view = new WebContentsView({
-        // Agent tabs need timers/rAF at full rate for automation; user tabs
-        // get Chromium's normal background throttling to save CPU.
-        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: space.ownership === 'agent' ? false : true },
+        // All tab views stay stacked and "visible"; Chromium would treat
+        // covered views as hidden and throttle them, which delays the first
+        // paint on tab switch and shows a white flash. Throttling stays off.
+        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
       });
       wireTabView(space, tab, view);
       view.setBackgroundColor('#ffffff');
