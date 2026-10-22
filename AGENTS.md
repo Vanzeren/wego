@@ -53,6 +53,23 @@ for the server snippet), then `wego-browser nodejs <<'EOF' … EOF`.
 Electron instances: the app holds a single-instance lock. `pkill -f
 "/usr/lib/electron38"` before relaunching, or your new code never runs.
 
+## Module map
+
+- `src/browser/window.js` — orchestrator only: window creation, view layout
+  (stacked bounds + z-order), zoom glue, startup restore.
+- `src/browser/views.js` — tab view lifecycle: marker→targetId flow, input
+  wiring (zoom keys, Ctrl+F), event feeds, scrollbar injection.
+- `src/browser/findbar.js` — find bar overlay view (own WebContentsView).
+- `src/browser/ipc.js` — `ui:action` dispatch table (gating rules live here).
+- `src/browser/persistence.js` — `settings.json`/`spaces.json` (electron-free,
+  unit-testable).
+- `src/browser/spaces.js` — SpaceManager state machine (pure, no electron).
+- `src/browser/bridge.js` — bridge socket server; `src/browser/snapshot/` —
+  snapshot engine; `src/browser/chrome-import.js` — Chrome onboarding.
+- `src/runtime/page.js` — Page class (core: sessions, receipts, evaluate);
+  `src/runtime/driver/` holds Page-adjacent artifacts (`files.js` =
+  Download/FileChooser, `namespaces.js` = mouse/keyboard factories).
+
 ## Conventions
 
 - Public helper/API changes: update `skill-body/SKILL.md` (the guide printed

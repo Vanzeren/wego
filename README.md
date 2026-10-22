@@ -113,13 +113,16 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 ## Layout
 
 ```
-src/browser/   Electron main: window, spaces, bridge server, snapshot engine, renderer UI
+src/browser/   Electron main: window.js (orchestrator), views.js (tab views),
+               findbar.js (overlay), ipc.js (UI dispatch), persistence.js,
+               spaces.js (state machine), bridge.js, snapshot/, chrome-import.js
 src/client/    wego bindings client (Unix socket + CDP WebSocket)
-src/runtime/   agent SDK: TaskSpace/Page, selectors, refs, input, CDP sessions
-src/cli/       wego-browser CLI (nodejs/skill/launch/doctor/...)
+src/runtime/   agent SDK: TaskSpace/Page, selectors, refs, input, CDP sessions,
+               driver/ (Download/FileChooser, mouse/keyboard namespaces)
+src/cli/       wego-browser CLI (nodejs/skill/launch/doctor/profiles/...)
 skill-body/    usage guide printed by `wego-browser skill`
 skills/        entry agent skill + install reference
-docs/          bridge protocol contract
+docs/          bridge protocol contract, roadmap
 fixtures/      local test pages; scripts/smoke.mjs end-to-end check
 ```
 

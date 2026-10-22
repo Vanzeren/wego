@@ -9,7 +9,9 @@ import crypto from 'node:crypto';
 
 import { populate as populateRefs, parseRefTarget, lookup as lookupRef } from './refs.js';
 import { resolveTarget } from './selectors.js';
-import { parseKeySpec, keyDown, keyUp, pressKey, typeText, mouseEvent, MOUSE_BUTTONS } from './input.js';
+import { parseKeySpec, pressKey, mouseEvent, MOUSE_BUTTONS } from './input.js';
+import { Download, FileChooser } from './driver/files.js';
+import { buildMouse, buildKeyboard } from './driver/namespaces.js';
 import { CDPError } from './cdp.js';
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -36,68 +38,7 @@ function withTimeout(promise, ms, what) {
   return Promise.race([promise, t]).finally(() => clearTimeout(timer));
 }
 
-// ---------------------------------------------------------------- downloads
-
-class Download {
-  constructor(page, guid, url, suggestedFilename) {
-    this._page = page;
-    this._guid = guid;
-    this._url = url;
-    this._suggested = suggestedFilename;
-    this._path = null;
-    this._done = new Promise((resolve) => { this._resolveDone = resolve; });
-  }
-  url() { return this._url; }
-  suggestedFilename() { return this._suggested; }
-  path() { return this._path; }
-  async saveAs(absPath) {
-    if (!path.isAbsolute(absPath)) throw Object.assign(new Error('saveAs path must be absolute'), { error_code: 'WEGO_INVALID_ARGUMENT' });
-    await this._done;
-    await fs.promises.mkdir(path.dirname(absPath), { recursive: true });
-    await fs.promises.copyFile(this._path, absPath);
-    return absPath;
-  }
-  async cancel() {
-    await this._page._session().then((s) => s.send('Browser.cancelDownload', { guid: this._guid })).catch(() => {});
-  }
-}
-
 // ---------------------------------------------------------------- Page
-
-// One intercepted file chooser. Created when Page.fileChooserOpened fires;
-// resolve it with setFiles() or let the no-waiter path cancel it.
-class FileChooser {
-  constructor(page, params) {
-    this._page = page;
-    this._backendNodeId = params.backendNodeId;
-    this.mode = params.mode; // 'selectSingle' | 'selectMultiple'
-    this._done = false;
-  }
-
-  isMultiple() { return this.mode === 'selectMultiple'; }
-
-  async setFiles(paths) {
-    if (this._done) throw new CDPError('File chooser already handled', 'WEGO_OPERATION_FAILED');
-    const list = Array.isArray(paths) ? paths : [paths];
-    for (const p of list) {
-      if (typeof p !== 'string' || !path.isAbsolute(p)) {
-        throw Object.assign(new TypeError('setFiles expects absolute paths'), { error_code: 'WEGO_INVALID_ARGUMENT' });
-      }
-    }
-    const session = await this._page._session();
-    await session.send('DOM.setFileInputFiles', { files: list, backendNodeId: this._backendNodeId });
-    this._done = true;
-    return this._page._receipt();
-  }
-
-  // Empty file list resolves the intercepted chooser as a cancel.
-  async cancel() {
-    if (this._done) return;
-    const session = await this._page._session();
-    await session.send('DOM.setFileInputFiles', { files: [], backendNodeId: this._backendNodeId }).catch(() => {});
-    this._done = true;
-  }
-}
 
 export class Page {
   constructor(space, label, targetId, openedBy) {
@@ -719,60 +660,7 @@ export class Page {
 
   // ---- mouse / keyboard namespaces ----
 
-  get mouse() {
-    const page = this;
-    return {
-      async click(x, y, { label } = {}) {
-        void label;
-        page._watchPopups();
-        await page._dispatchClick({ x, y }, { clickCount: 1 });
-        return page._receipt();
-      },
-      async move(x, y, { label } = {}) {
-        void label;
-        const session = await page._session();
-        page._mousePos = { x, y };
-        await mouseEvent(session, 'mouseMoved', x, y);
-      },
-      async down({ button = 'left' } = {}) {
-        const session = await page._session();
-        const { x, y } = page._mousePos;
-        await mouseEvent(session, 'mousePressed', x, y, { button, buttons: MOUSE_BUTTONS[button] || 1, clickCount: 1 });
-      },
-      async up({ button = 'left' } = {}) {
-        const session = await page._session();
-        const { x, y } = page._mousePos;
-        await mouseEvent(session, 'mouseReleased', x, y, { button, buttons: 0, clickCount: 1 });
-      },
-      async wheel(dx, dy, { label } = {}) {
-        void label;
-        const session = await page._session();
-        const { x, y } = page._mousePos;
-        await session.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: dx, deltaY: dy });
-      },
-    };
-  }
+  get mouse() { return buildMouse(this); }
 
-  get keyboard() {
-    const page = this;
-    return {
-      async down(key) { await keyDown(await page._session(), parseKeySpec(key)); },
-      async up(key) { await keyUp(await page._session(), parseKeySpec(key)); },
-      async press(key) { await pressKey(await page._session(), key); },
-      async type(text, { delay = 0 } = {}) { await typeText(await page._session(), String(text), { delay }); },
-      async insertText(text) { await (await page._session()).send('Input.insertText', { text: String(text) }); },
-      async paste({ text, html } = {}) {
-        if (typeof text !== 'string' && typeof html !== 'string') {
-          throw Object.assign(new TypeError('paste requires {text} and/or {html}'), { error_code: 'WEGO_INVALID_ARGUMENT' });
-        }
-        // Browser-side clipboard write + native paste + clipboard restore.
-        await page._ctx().ego._call('paste', {
-          id: page.spaceId,
-          targetId: page.targetId,
-          ...(text !== undefined ? { text } : {}),
-          ...(html !== undefined ? { html } : {}),
-        });
-      },
-    };
-  }
+  get keyboard() { return buildKeyboard(this); }
 }
