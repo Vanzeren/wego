@@ -15,7 +15,8 @@ dependencies** — do not add any without explicit approval. Node ≥ 22, Electr
   browser-level CDP WebSocket (`getCDPEndpoint()`) with flatten sessions.
 - Bridge responses must never expose placeholder `tab-N` targetIds;
   `SpaceManager.awaitTargetId` gates this. Views are created with a unique
-  marker URL (`about:blank#wego-…`) that is matched in `/json/list`.
+  dark data-URL marker (`wego-marker-…` in an HTML comment) that is matched
+  in `/json/list`.
 - **All tab views stay attached to the window at full visible bounds**; the
   active one is raised in z-order. Detaching or offscreen-parking collapses
   the layout viewport to 0x0 and silently breaks geometry/CDP Input.

@@ -130,7 +130,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       return { action: 'deny' };
     });
     const trackUrl = (url) => {
-      if (url.startsWith('about:blank#wego-')) return; // targetId marker
+      if (url.includes('wego-marker-')) return; // targetId marker
       spaces.noteUrl(space.id, tab.targetId, url === NEWTAB_URL ? 'about:blank' : url);
     };
     wc.on('did-navigate', (_e, url) => trackUrl(url));
@@ -149,7 +149,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       view.setBounds({ x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 });
       const wc = view.webContents;
       const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
-      const marker = `about:blank#wego-${space.id}-${tab.targetId}`;
+      // Dark data-URL marker: unique (matched in /json/list to resolve the
+      // real CDP targetId) and dark, so new tabs no longer flash white
+      // before the new-tab page paints.
+      const marker = `data:text/html,<!doctype html><style>html{background:%2317181c}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
       tab.targetIdReady = (async () => {
         await wc.loadURL(marker);
         const realId = await resolveCdpTargetId(marker, wc);
