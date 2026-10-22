@@ -24,6 +24,12 @@ dependencies** — do not add any without explicit approval. Node ≥ 22, Electr
   chrome color (`#17181c`) — a light color shows as a jarring flash on tab
   switch/create. Agent-owned tabs additionally need
   `backgroundThrottling: false` (automation timers); user tabs may throttle.
+- **The chrome page can never paint over page views** — they are composited
+  above it, so anything in the chrome renderer extending past the 84px top
+  band gets clipped by the page. Floating overlays over page content (find
+  bar, future handback/banner) MUST be their own small WebContentsView
+  (see the findbar block in window.js), raised after the top page view in
+  `layoutViews`.
 - Error objects crossing the bridge carry `error_code` from protocol.md.
 
 ## Verify changes

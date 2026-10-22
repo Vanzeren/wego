@@ -45,6 +45,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     if (scope === 'ui') {
       settings.uiZoom = nextZoom(settings.uiZoom, dir);
       win.webContents.setZoomFactor(settings.uiZoom);
+      if (findbarView) {
+        findbarView.webContents.setZoomFactor(settings.uiZoom);
+        if (findbarVisible) findbarView.setBounds(findbarBounds());
+      }
       layoutViews(); // chrome geometry changed; re-place the views
     } else {
       const tab = activeTabWc();
@@ -64,13 +68,79 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     return { uiZoom: settings.uiZoom, pageZoomLevel: settings.pageZoomLevel };
   }
 
+  // ---- findbar: a dedicated always-on-top view ---------------------------
+  // The chrome page can never paint over page views (they are composited
+  // above it), so an in-chrome findbar gets its bottom clipped by the page.
+  // The findbar is its own tiny WebContentsView parked offscreen when hidden.
+  let findbarView = null;
+  let findbarVisible = false;
+  let findText = '';
+
+  function ensureFindbar() {
+    if (findbarView) return findbarView;
+    findbarView = new WebContentsView({
+      webPreferences: {
+        preload: path.join(__dirname, 'renderer', 'findbar-preload.js'),
+        contextIsolation: true, nodeIntegration: false, sandbox: true,
+      },
+    });
+    findbarView.setBackgroundColor('#00000000'); // transparent outside the card
+    win.contentView.addChildView(findbarView);
+    findbarView.webContents.loadFile(path.join(__dirname, 'renderer', 'findbar.html')).catch(() => {});
+    findbarView.webContents.setZoomFactor(settings.uiZoom);
+    return findbarView;
+  }
+
+  function findbarBounds() {
+    const z = settings.uiZoom;
+    const [w] = win.getContentSize();
+    const bw = Math.round(400 * z);
+    const bh = Math.round(58 * z);
+    const top = Math.round(CHROME_HEIGHT * z) + Math.round(6 * z);
+    return { x: Math.max(0, w - bw - Math.round(16 * z)), y: top, width: bw, height: bh };
+  }
+
+  function raiseFindbar() {
+    try {
+      win.contentView.removeChildView(findbarView);
+      win.contentView.addChildView(findbarView);
+    } catch { /* view race */ }
+  }
+
+  function showFindbar() {
+    ensureFindbar();
+    findbarVisible = true;
+    findbarView.setBounds(findbarBounds());
+    raiseFindbar();
+    findbarView.webContents.setZoomFactor(settings.uiZoom);
+    findbarView.webContents.focus();
+    findbarView.webContents.send('findbar:prefill', findText);
+  }
+
+  function hideFindbar() {
+    if (!findbarView) return;
+    findbarVisible = false;
+    const b = findbarBounds();
+    findbarView.setBounds({ x: -5000, y: b.y, width: b.width, height: b.height });
+    const tab = activeTabWc();
+    if (tab && !tab.isDestroyed()) tab.focus();
+  }
+
+  function toggleFindbar() {
+    if (findbarVisible) {
+      hideFindbar();
+      activeTabWc()?.stopFindInPage('clearSelection');
+    } else {
+      showFindbar();
+    }
+  }
+
   function wireZoomInput(wc) {
     wc.on('before-input-event', (event, input) => {
-      // Ctrl+F: open the find bar regardless of which webContents has focus.
+      // Ctrl+F: toggle the find bar regardless of which webContents has focus.
       if (input.type === 'keyDown' && input.control && !input.shift && !input.alt && !input.meta
           && (input.key === 'f' || input.key === 'F')) {
-        win.webContents.send('findbar:open');
-        win.webContents.focus();
+        toggleFindbar();
         event.preventDefault();
         return;
       }
@@ -158,8 +228,8 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     wireZoomInput(wc);
     // find-in-page results for the find bar (only from the active tab)
     wc.on('found-in-page', (_e, result) => {
-      if (activeTabWc() === wc && !win.isDestroyed()) {
-        win.webContents.send('findbar:result', {
+      if (findbarVisible && findbarView && activeTabWc() === wc && !findbarView.webContents.isDestroyed()) {
+        findbarView.webContents.send('findbar:result', {
           matches: result.matches ?? 0,
           activeMatchOrdinal: result.activeMatchOrdinal ?? 0,
         });
@@ -262,10 +332,20 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     const top = active?.tabs.find((t) => t.targetId === active.activeTargetId)?.view ?? null;
     if (top && top !== currentTop) {
       currentTop = top;
+      // the find selection belongs to the previous tab
+      if (findbarVisible) {
+        hideFindbar();
+        findText = '';
+      }
       try {
         win.contentView.removeChildView(top); // re-add => top of z-order
         win.contentView.addChildView(top);
       } catch { /* view race */ }
+    }
+    // the findbar floats above page content
+    if (findbarVisible && findbarView) {
+      raiseFindbar();
+      findbarView.setBounds(findbarBounds()); // track resize/zoom
     }
   }
 
@@ -277,8 +357,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   spaces.on('taskState', () => { pushState(); scheduleSave(spaces); });
   win.on('resize', layoutViews);
 
-  // Find-in-page state (active tab only).
-  let findText = '';
+  // Find-in-page state is declared with the findbar view block above.
 
   // User gestures mutate the active space directly and are only honored while
   // control === 'user'; agent control transitions go through SpaceManager.
@@ -315,6 +394,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
         if (userEditable && typeof msg.targetId === 'string') spaces.activateUserTab(space.id, msg.targetId);
         break;
       // Find bar: meta operation over the active tab, never gated.
+      case 'findToggle': toggleFindbar(); break;
       case 'find':
         findText = typeof msg.text === 'string' ? msg.text : '';
         if (findText) activeWc()?.findInPage(findText);
@@ -325,6 +405,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
         break;
       case 'findClose':
         activeWc()?.stopFindInPage('clearSelection');
+        hideFindbar();
         break;
       case 'switchSpace':
         if (typeof msg.id === 'number' && spaces.getSpace(msg.id)) spaces.setActiveSpace(msg.id);

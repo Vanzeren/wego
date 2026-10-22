@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>findbar</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --surface-2: #26272e;
+    --hover: #2f313a;
+    --border: rgba(255, 255, 255, 0.14);
+    --text: #e6e6eb;
+    --muted: #9a9aa5;
+    --accent: #8f7bff;
+    --danger: #e5484d;
+  }
+  html, body { height: 100%; background: transparent; }
+  body { padding: 2px; font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased; color: var(--text); user-select: none; }
+  #bar { display: flex; align-items: center; gap: 6px; padding: 10px; border-radius: 10px;
+    background: rgba(38, 39, 46, 0.97); border: 1px solid var(--border);
+    box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  #q { flex: 1; min-width: 0; height: 30px; border: 1px solid var(--border); border-radius: 8px;
+    background: #101116; color: var(--text); padding: 0 10px; outline: none; font-size: 12px; }
+  #q:focus { border-color: var(--accent); }
+  #count { min-width: 40px; text-align: center; color: var(--muted); font-size: 11px; }
+  #count.none { color: var(--danger); }
+  button { width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--muted); font-size: 13px; cursor: pointer; }
+  button:hover { background: var(--hover); color: var(--text); }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <input id="q" type="text" placeholder="Find in page" spellcheck="false" autofocus>
+    <span id="count"></span>
+    <button id="prev" title="Previous (Shift+Enter)">&#8593;</button>
+    <button id="next" title="Next (Enter)">&#8595;</button>
+    <button id="close" title="Close (Esc)">&#10005;</button>
+  </div>
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const input = $('#q');
+    input.addEventListener('input', (e) => window.findbar.action('find', { text: e.target.value }));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') window.findbar.action('findNext', { forward: !e.shiftKey });
+      else if (e.key === 'Escape') window.findbar.action('findClose');
+    });
+    $('#next').addEventListener('click', () => window.findbar.action('findNext', { forward: true }));
+    $('#prev').addEventListener('click', () => window.findbar.action('findNext', { forward: false }));
+    $('#close').addEventListener('click', () => window.findbar.action('findClose'));
+    window.findbar.onResult((r) => {
+      const c = $('#count');
+      c.textContent = r.matches === 0 ? '0/0' : `${r.activeMatchOrdinal}/${r.matches}`;
+      c.classList.toggle('none', r.matches === 0);
+    });
+    window.findbar.onPrefill((text) => {
+      if (text) {
+        input.value = text;
+        window.findbar.action('find', { text });
+      }
+      input.focus();
+      input.select();
+    });
+  </script>
+</body>
+</html>

@@ -100,11 +100,6 @@ function render() {
   const space = activeSpace();
   const activeTab = space?.tabs.find((t) => t.targetId === space.activeTargetId) ?? null;
 
-  // the find bar's selection belongs to the tab it was opened on
-  const currentTarget = space?.activeTargetId ?? null;
-  if (findOpen && lastFindTarget !== null && currentTarget !== lastFindTarget) closeFindBar();
-  lastFindTarget = currentTarget;
-
   const omnibox = $('#omnibox');
   if (document.activeElement !== omnibox) {
     omnibox.value = activeTab && activeTab.url !== 'about:blank' ? activeTab.url : '';
@@ -254,68 +249,6 @@ $('#newspace-input').addEventListener('keydown', (e) => {
 $('#navbar').addEventListener('dblclick', (e) => {
   if (e.target.closest('button, input')) return;
   window.ego.action('winControl', { op: 'maximize' });
-});
-
-// ---- find bar (Ctrl+F) ----
-let findOpen = false;
-let lastFindTarget = null; // close the bar when the active tab changes
-
-function openFindBar() {
-  if (findOpen) {
-    $('#find-input').select();
-    return;
-  }
-  findOpen = true;
-  lastFindTarget = activeSpace()?.activeTargetId ?? null;
-  $('#findbar').classList.add('open');
-  const input = $('#find-input');
-  input.focus();
-  input.select();
-  if (input.value) window.ego.action('find', { text: input.value });
-}
-
-function closeFindBar() {
-  if (!findOpen) return;
-  findOpen = false;
-  $('#findbar').classList.remove('open');
-  $('#find-count').textContent = '';
-  window.ego.action('findClose');
-}
-
-window.ego.onFindOpen(openFindBar);
-window.ego.onFindResult((r) => {
-  const count = $('#find-count');
-  if (r.matches === 0) {
-    count.textContent = '0/0';
-    count.classList.add('none');
-  } else {
-    count.textContent = `${r.activeMatchOrdinal}/${r.matches}`;
-    count.classList.remove('none');
-  }
-});
-
-$('#find-input').addEventListener('input', (e) => {
-  window.ego.action('find', { text: e.target.value });
-});
-$('#find-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    window.ego.action('findNext', { forward: !e.shiftKey });
-  } else if (e.key === 'Escape') {
-    closeFindBar();
-  }
-});
-$('#find-next').addEventListener('click', () => window.ego.action('findNext', { forward: true }));
-$('#find-prev').addEventListener('click', () => window.ego.action('findNext', { forward: false }));
-$('#find-close').addEventListener('click', closeFindBar);
-
-// Ctrl+F within the chrome page itself (when a tab isn't focused).
-document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'f' || e.key === 'F')) {
-    e.preventDefault();
-    openFindBar();
-  } else if (e.key === 'Escape' && findOpen) {
-    closeFindBar();
-  }
 });
 
 window.ego.onState((s) => { state = s; render(); });
