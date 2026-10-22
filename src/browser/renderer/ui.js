@@ -154,17 +154,12 @@ function render() {
     badge.textContent = s.ownership === 'agent' ? 'Agent' : 'You';
     row.append(name, badge);
     el.appendChild(row);
+    const bottom = document.createElement('div');
+    bottom.className = 'bottom';
     const control = document.createElement('div');
     control.className = `control ${s.control === 'agent' ? 'ctl-agent' : 'ctl-user'}`;
     control.textContent = s.control === 'agent' ? 'Agent in control' : 'You are in control';
-    el.appendChild(control);
-    if (s.agentState) {
-      const st = document.createElement('div');
-      st.className = 'agentstate';
-      st.textContent = s.agentState;
-      el.appendChild(st);
-    }
-    el.addEventListener('click', () => window.ego.action('switchSpace', { id: s.id }));
+    bottom.appendChild(control);
     const del = document.createElement('span');
     del.className = 'del';
     del.textContent = '×';
@@ -184,7 +179,15 @@ function render() {
         del.textContent = '×';
       }, 2500);
     });
-    el.appendChild(del);
+    bottom.appendChild(del);
+    el.appendChild(bottom);
+    if (s.agentState) {
+      const st = document.createElement('div');
+      st.className = 'agentstate';
+      st.textContent = s.agentState;
+      el.appendChild(st);
+    }
+    el.addEventListener('click', () => window.ego.action('switchSpace', { id: s.id }));
     list.appendChild(el);
   }
 
