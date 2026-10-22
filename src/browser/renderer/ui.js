@@ -165,6 +165,26 @@ function render() {
       el.appendChild(st);
     }
     el.addEventListener('click', () => window.ego.action('switchSpace', { id: s.id }));
+    const del = document.createElement('span');
+    del.className = 'del';
+    del.textContent = '×';
+    del.title = 'Close space';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (del.classList.contains('confirm')) {
+        del.classList.remove('confirm');
+        del.textContent = '×';
+        window.ego.action('closeSpace', { id: s.id });
+        return;
+      }
+      del.classList.add('confirm');
+      del.textContent = '删除?';
+      setTimeout(() => {
+        del.classList.remove('confirm');
+        del.textContent = '×';
+      }, 2500);
+    });
+    el.appendChild(del);
     list.appendChild(el);
   }
 
@@ -202,6 +222,26 @@ $('#handback').addEventListener('click', () => window.ego.action('handback'));
 $('#winmin').addEventListener('click', () => window.ego.action('winControl', { op: 'minimize' }));
 $('#winmax').addEventListener('click', () => window.ego.action('winControl', { op: 'maximize' }));
 $('#winc').addEventListener('click', () => window.ego.action('winControl', { op: 'close' }));
+
+// ---- space management ----
+$('#newspace').addEventListener('click', () => {
+  const row = $('#newspace-row');
+  const input = $('#newspace-input');
+  const open = row.style.display === 'block';
+  row.style.display = open ? 'none' : 'block';
+  if (!open) {
+    input.value = '';
+    input.focus();
+  }
+});
+$('#newspace-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    $('#newspace-row').style.display = 'none';
+    window.ego.action('newSpace', { name: e.target.value });
+  } else if (e.key === 'Escape') {
+    $('#newspace-row').style.display = 'none';
+  }
+});
 // Double-click the drag region toggles maximize, like a native titlebar.
 $('#navbar').addEventListener('dblclick', (e) => {
   if (e.target.closest('button, input')) return;

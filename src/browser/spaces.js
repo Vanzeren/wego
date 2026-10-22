@@ -90,6 +90,37 @@ export class SpaceManager extends EventEmitter {
     return space;
   }
 
+  // UI path: create a user-owned space with one blank tab and switch to it.
+  createUserSpace(name) {
+    const trimmed = typeof name === 'string' && name.trim() ? name.trim() : `Space ${this.#nextSpaceId}`;
+    const space = this.#newSpace({
+      name: trimmed, createdBy: 'user', ownership: 'user', control: 'user', profileId: 'Default',
+    });
+    this.#addTab(space, 'about:blank');
+    this.setActiveSpace(space.id);
+    return space;
+  }
+
+  // UI path: close any space regardless of control state (the user owns the
+  // browser; an agent driving the closed space gets WEGO_TASK_SPACE_NOT_FOUND
+  // on its next call). Never leaves zero spaces behind.
+  closeUserSpace(id) {
+    const space = this.requireSpace(id);
+    for (const tab of [...space.tabs]) {
+      try { this.#hooks.destroyView?.(space, tab); } catch { /* view already gone */ }
+    }
+    this.#spaces.delete(id);
+    if (this.#spaces.size === 0) {
+      const personal = this.createPersonalSpace();
+      this.addUserTab(personal.id, 'about:blank');
+    }
+    if (this.activeSpaceId === id || !this.#spaces.has(this.activeSpaceId)) {
+      this.activeSpaceId = this.#spaces.keys().next().value ?? null;
+    }
+    this.emit('spaceChanged', id);
+    return `${id} space closed.`;
+  }
+
   setActiveSpace(id) {
     const space = this.requireSpace(id);
     if (this.activeSpaceId !== id) {

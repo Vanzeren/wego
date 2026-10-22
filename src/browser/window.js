@@ -257,6 +257,14 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       case 'switchSpace':
         if (typeof msg.id === 'number' && spaces.getSpace(msg.id)) spaces.setActiveSpace(msg.id);
         break;
+      // Sidebar space management: meta operations, never gated by the active
+      // space's control state.
+      case 'newSpace':
+        spaces.createUserSpace(typeof msg.name === 'string' ? msg.name : '');
+        break;
+      case 'closeSpace':
+        if (typeof msg.id === 'number') spaces.closeUserSpace(msg.id);
+        break;
       case 'takeover': if (space) spaces.handOffTaskSpace({ id: space.id }); break;
       case 'handback': if (space) spaces.takeOverTaskSpace({ id: space.id }); break;
       // Window chrome: always the user's domain, never gated by space control.

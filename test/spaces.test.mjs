@@ -244,3 +244,34 @@ test('moveTab reorders within the space, clamps, keeps active tab', () => {
   sm.handOffTaskSpace({ id: t.id });
   assert.throws(() => sm.moveTab(t.id, space.tabs[0].targetId, 0), /user control/);
 });
+
+test('createUserSpace: named/default naming, blank tab, becomes active', () => {
+  const sm = makeManager();
+  sm.createPersonalSpace();
+  const named = sm.createUserSpace('  Research  ');
+  assert.equal(named.name, 'Research');
+  assert.equal(named.ownership, 'user');
+  assert.equal(named.tabs.length, 1);
+  assert.equal(sm.getActive().id, named.id);
+  const anon = sm.createUserSpace('');
+  assert.match(anon.name, /^Space \d+$/);
+});
+
+test('closeUserSpace: ungated, destroys views, switches active, never empty', () => {
+  const destroyed = [];
+  const sm = makeManager({ destroyView: (space, tab) => destroyed.push(tab.targetId) });
+  const p = sm.createPersonalSpace();
+  sm.addUserTab(p.id, 'http://x/');
+  const agentSpace = sm.createTaskSpace({ name: 'agent-work' });
+  sm.setActiveSpace(agentSpace.id);
+  // ungated: closes even an agent-controlled space
+  sm.closeUserSpace(agentSpace.id);
+  assert.equal(sm.getSpace(agentSpace.id), null);
+  assert.equal(sm.getActive().id, p.id);
+  assert.ok(destroyed.length >= 1);
+  // closing the last space auto-creates a fresh Personal
+  sm.closeUserSpace(p.id);
+  assert.equal(sm.listTaskSpaces().taskSpaces.length, 1);
+  assert.equal(sm.listTaskSpaces().taskSpaces[0].name, 'Personal');
+  assert.ok(sm.getActive());
+});

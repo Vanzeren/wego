@@ -72,6 +72,23 @@
   #sidebar::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
   #sidebar h2 { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
     color: var(--faint); margin: 2px 8px 10px; }
+  #sidebar-head { display: flex; align-items: center; }
+  #sidebar-head h2 { flex: 1; margin-bottom: 10px; }
+  #newspace { width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--muted); font-size: 14px; cursor: pointer; margin: 0 4px 10px 0; }
+  #newspace:hover { background: var(--hover); color: var(--text); }
+  #newspace-row { display: none; margin-bottom: 8px; }
+  #newspace-input { width: 100%; height: 30px; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--surface); color: var(--text); padding: 0 10px; outline: none; font-size: 12px; }
+  .space { position: relative; }
+  .space .del { position: absolute; top: 6px; right: 6px; width: 18px; height: 18px;
+    line-height: 16px; text-align: center; border-radius: 50%; color: var(--faint);
+    font-size: 11px; opacity: 0; transition: opacity .12s; }
+  .space:hover .del { opacity: 1; }
+  .space .del:hover { background: var(--hover); color: var(--text); }
+  .space .del.confirm { opacity: 1; color: var(--danger); font-size: 10px; width: auto;
+    padding: 0 6px; border-radius: 6px; border: 1px solid var(--danger); line-height: 18px;
+    background: rgba(23,24,28,.9); }
   .space { border-radius: 10px; padding: 9px 10px; cursor: pointer; margin-bottom: 4px;
     border: 1px solid transparent; transition: background .12s, border-color .12s; }
   .space:hover { background: var(--surface); }
@@ -124,7 +141,11 @@
     </div>
   </div>
   <div id="tabstrip"></div>
-  <div id="sidebar"><h2>Spaces</h2><div id="spaces"></div></div>
+  <div id="sidebar">
+    <div id="sidebar-head"><h2>Spaces</h2><button id="newspace" title="New space">+</button></div>
+    <div id="newspace-row"><input id="newspace-input" type="text" placeholder="Space name — Enter to create, Esc to cancel"></div>
+    <div id="spaces"></div>
+  </div>
   <div id="banner"><span>Agent is working in this space</span><button id="takeover">Take over</button></div>
   <button id="handback">Hand back to agent</button>
   <div id="overlay"></div>
