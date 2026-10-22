@@ -259,6 +259,7 @@ $('#newspace').addEventListener('click', () => {
   const input = $('#newspace-input');
   const open = row.style.display === 'block';
   row.style.display = open ? 'none' : 'block';
+  row.classList.toggle('open', !open);
   if (!open) {
     input.value = '';
     input.focus();

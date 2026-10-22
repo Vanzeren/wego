@@ -130,11 +130,13 @@
 
   /* ---- motion (tasteful, reduced-motion aware) ---- */
   @keyframes tab-in {
-    from { opacity: 0; transform: translateY(-6px) scale(.96); }
+    from { opacity: 0; transform: translateX(-16px) scale(.92); }
+    60% { opacity: 1; }
     to { opacity: 1; transform: none; }
   }
   @keyframes space-in {
-    from { opacity: 0; transform: translateX(-8px); }
+    from { opacity: 0; transform: translateX(-20px); }
+    60% { opacity: 1; }
     to { opacity: 1; transform: none; }
   }
   @keyframes banner-in {
@@ -145,14 +147,19 @@
     from { opacity: 0; transform: scale(.97); }
     to { opacity: 1; transform: none; }
   }
-  .tab.entering { animation: tab-in .18s cubic-bezier(.2,.8,.3,1) both; }
-  .space.entering { animation: space-in .2s cubic-bezier(.2,.8,.3,1) both; }
-  #banner.showing { animation: banner-in .22s cubic-bezier(.2,.8,.3,1) both; }
+  @keyframes row-open {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .tab.entering { animation: tab-in .28s cubic-bezier(.34,1.35,.4,1) both; }
+  .space.entering { animation: space-in .3s cubic-bezier(.34,1.3,.4,1) both; }
+  #banner.showing { animation: banner-in .24s cubic-bezier(.2,.8,.3,1) both; }
   #handback { transition: opacity .15s, color .12s, border-color .12s; }
   #handback.showing { animation: fade-pop .18s ease-out both; }
+  #newspace-row.open { animation: row-open .2s ease-out both; }
   .tab { transition: background .12s, color .12s, opacity .12s; }
   @media (prefers-reduced-motion: reduce) {
-    .tab.entering, .space.entering, #banner.showing, #handback.showing { animation: none; }
+    .tab.entering, .space.entering, #banner.showing, #handback.showing, #newspace-row.open { animation: none; }
     .tab, .navbtn, #wincontrols button, .space, #omnibox { transition: none; }
   }
 </style>
