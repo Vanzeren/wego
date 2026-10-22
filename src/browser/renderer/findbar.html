@@ -20,6 +20,12 @@
   #bar { display: flex; align-items: center; gap: 6px; padding: 10px; border-radius: 10px;
     background: rgba(38, 39, 46, 0.97); border: 1px solid var(--border);
     box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  #bar.enter { animation: bar-in .18s cubic-bezier(.2,.8,.3,1) both; }
+  @keyframes bar-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { #bar.enter { animation: none; } }
   #q { flex: 1; min-width: 0; height: 30px; border: 1px solid var(--border); border-radius: 8px;
     background: #101116; color: var(--text); padding: 0 10px; outline: none; font-size: 12px; }
   #q:focus { border-color: var(--accent); }
@@ -55,6 +61,10 @@
       c.classList.toggle('none', r.matches === 0);
     });
     window.findbar.onPrefill((text) => {
+      const bar = document.querySelector('#bar');
+      bar.classList.remove('enter');
+      void bar.offsetWidth; // restart the open animation on every show
+      bar.classList.add('enter');
       if (text) {
         input.value = text;
         window.findbar.action('find', { text });

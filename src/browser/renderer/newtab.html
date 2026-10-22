@@ -27,7 +27,13 @@
     -webkit-font-smoothing: antialiased;
     display: flex; align-items: center; justify-content: center;
   }
-  main { width: min(560px, 86vw); text-align: center; transform: translateY(-6vh); }
+  main { width: min(560px, 86vw); text-align: center; transform: translateY(-6vh);
+    animation: ntp-in .3s cubic-bezier(.2,.8,.3,1) both; }
+  @keyframes ntp-in {
+    from { opacity: 0; transform: translateY(calc(-6vh + 8px)); }
+    to { opacity: 1; transform: translateY(-6vh); }
+  }
+  @media (prefers-reduced-motion: reduce) { main { animation: none; } }
   .wordmark {
     font-size: 56px; font-weight: 700; letter-spacing: -0.03em;
     background: linear-gradient(135deg, #e6e6eb 30%, var(--accent));

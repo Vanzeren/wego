@@ -127,6 +127,34 @@
     from { opacity: 1; transform: scale(.6); }
     to { opacity: 0; transform: scale(1.4); }
   }
+
+  /* ---- motion (tasteful, reduced-motion aware) ---- */
+  @keyframes tab-in {
+    from { opacity: 0; transform: translateY(-6px) scale(.96); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes space-in {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes banner-in {
+    from { opacity: 0; transform: translateY(-100%); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes fade-pop {
+    from { opacity: 0; transform: scale(.97); }
+    to { opacity: 1; transform: none; }
+  }
+  .tab.entering { animation: tab-in .18s cubic-bezier(.2,.8,.3,1) both; }
+  .space.entering { animation: space-in .2s cubic-bezier(.2,.8,.3,1) both; }
+  #banner.showing { animation: banner-in .22s cubic-bezier(.2,.8,.3,1) both; }
+  #handback { transition: opacity .15s, color .12s, border-color .12s; }
+  #handback.showing { animation: fade-pop .18s ease-out both; }
+  .tab { transition: background .12s, color .12s, opacity .12s; }
+  @media (prefers-reduced-motion: reduce) {
+    .tab.entering, .space.entering, #banner.showing, #handback.showing { animation: none; }
+    .tab, .navbtn, #wincontrols button, .space, #omnibox { transition: none; }
+  }
 </style>
 </head>
 <body>

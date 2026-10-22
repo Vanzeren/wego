@@ -5,6 +5,9 @@ const SIDEBAR_WIDTH = 200;
 let state = { activeSpaceId: null, spaces: [] };
 let dragging = null; // active tab drag session; render() is frozen meanwhile
 let suppressNextClick = false; // swallow the click that follows a real drag
+const knownTabs = new Set(); // animate only genuinely new tabs/spaces
+const knownSpaces = new Set();
+let bannerShown = false;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -107,9 +110,20 @@ function render() {
 
   const strip = $('#tabstrip');
   strip.textContent = '';
+  let tabIndex = 0;
   for (const tab of space?.tabs ?? []) {
     const el = document.createElement('div');
     el.className = `tab${tab.targetId === space.activeTargetId ? ' active' : ''}`;
+    // Key by position+url: the placeholder targetId swaps to the real CDP id
+    // shortly after creation, and keying by targetId would replay the
+    // enter animation.
+    const animKey = `${tabIndex}:${tab.url}`;
+    tabIndex++;
+    if (!knownTabs.has(animKey)) {
+      knownTabs.add(animKey);
+      el.classList.add('entering');
+      el.addEventListener('animationend', () => el.classList.remove('entering'), { once: true });
+    }
     el.title = tab.url;
     const label = document.createElement('span');
     label.className = 'label';
@@ -144,6 +158,11 @@ function render() {
   for (const s of state.spaces) {
     const el = document.createElement('div');
     el.className = `space${s.id === state.activeSpaceId ? ' active' : ''}`;
+    if (!knownSpaces.has(s.id)) {
+      knownSpaces.add(s.id);
+      el.classList.add('entering');
+      el.addEventListener('animationend', () => el.classList.remove('entering'), { once: true });
+    }
     const row = document.createElement('div');
     row.className = 'row';
     const name = document.createElement('span');
@@ -191,7 +210,15 @@ function render() {
     list.appendChild(el);
   }
 
-  $('#banner').style.display = space && space.ownership === 'agent' && space.control === 'agent' ? 'flex' : 'none';
+  const showBanner = space && space.ownership === 'agent' && space.control === 'agent';
+  const banner = $('#banner');
+  banner.style.display = showBanner ? 'flex' : 'none';
+  if (showBanner && !bannerShown) {
+    banner.classList.remove('showing');
+    void banner.offsetWidth; // restart the animation
+    banner.classList.add('showing');
+  }
+  bannerShown = !!showBanner;
   $('#handback').style.display = space && space.ownership === 'agent' && space.control === 'user' ? 'block' : 'none';
 }
 
