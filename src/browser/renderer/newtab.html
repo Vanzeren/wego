@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>New Tab</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #17181c;
+    --surface: #202127;
+    --hover: #2f313a;
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e6e6eb;
+    --muted: #9a9aa5;
+    --faint: #6d6d78;
+    --accent: #8f7bff;
+    --accent-dim: rgba(143, 123, 255, 0.16);
+  }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(900px 500px at 50% -10%, rgba(143, 123, 255, 0.10), transparent 60%),
+      radial-gradient(700px 500px at 85% 110%, rgba(143, 123, 255, 0.05), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; align-items: center; justify-content: center;
+  }
+  main { width: min(560px, 86vw); text-align: center; transform: translateY(-6vh); }
+  .wordmark {
+    font-size: 56px; font-weight: 700; letter-spacing: -0.03em;
+    background: linear-gradient(135deg, #e6e6eb 30%, var(--accent));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin-bottom: 6px;
+  }
+  .tagline { color: var(--faint); font-size: 13px; margin-bottom: 34px; }
+  form { position: relative; }
+  .icon {
+    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+    color: var(--faint); pointer-events: none; display: flex;
+  }
+  input {
+    width: 100%; height: 48px; border-radius: 14px; border: 1px solid var(--border);
+    background: rgba(32, 33, 39, 0.85); color: var(--text); outline: none;
+    padding: 0 18px 0 44px; font-size: 15px;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  input::placeholder { color: var(--faint); }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-dim);
+    background: var(--surface); }
+  .hint { margin-top: 16px; color: var(--faint); font-size: 12px; }
+  .hint kbd {
+    font: 11px/1 ui-monospace, monospace; color: var(--muted);
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px;
+    padding: 2px 5px; background: var(--surface);
+  }
+</style>
+</head>
+<body>
+  <main>
+    <div class="wordmark">ego</div>
+    <div class="tagline">Your browser, shared with your agents</div>
+    <form id="f">
+      <span class="icon">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/>
+          <path d="m11 11 3.2 3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <input id="q" type="text" placeholder="Search or enter address" spellcheck="false" autofocus>
+    </form>
+    <div class="hint"><kbd>Ctrl</kbd> + <kbd>=</kbd> zoom page &nbsp;·&nbsp; <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>=</kbd> zoom UI</div>
+  </main>
+  <script>
+    document.getElementById('q').focus();
+    document.getElementById('f').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = document.getElementById('q').value.trim();
+      if (!v) return;
+      let url;
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v)) url = v;
+      else if (/^\S+\.\S+$/.test(v)) url = 'https://' + v;
+      else url = 'https://duckduckgo.com/?q=' + encodeURIComponent(v);
+      location.href = url;
+    });
+  </script>
+</body>
+</html>

@@ -1,12 +1,16 @@
 import { BrowserWindow, WebContentsView, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { SpaceManager } from './spaces.js';
 import { partitionForProfile as partitionFor } from './partitions.js';
 import { nextZoom, nextZoomLevel, zoomFromKey } from './zoom.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Blank tabs load the designed new-tab page; state keeps 'about:blank' as
+// the canonical "empty tab" value so the omnibox stays clean.
+const NEWTAB_URL = pathToFileURL(path.join(__dirname, 'renderer', 'newtab.html')).href;
 
 // Keep in sync with renderer/ui.js layout constants.
 const CHROME_HEIGHT = 84;
@@ -125,8 +129,12 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       spaces.addUserTab(space.id, url || 'about:blank');
       return { action: 'deny' };
     });
-    wc.on('did-navigate', (_e, url) => { if (!url.startsWith('about:blank#ego-')) spaces.noteUrl(space.id, tab.targetId, url); });
-    wc.on('did-navigate-in-page', (_e, url) => { if (!url.startsWith('about:blank#ego-')) spaces.noteUrl(space.id, tab.targetId, url); });
+    const trackUrl = (url) => {
+      if (url.startsWith('about:blank#ego-')) return; // targetId marker
+      spaces.noteUrl(space.id, tab.targetId, url === NEWTAB_URL ? 'about:blank' : url);
+    };
+    wc.on('did-navigate', (_e, url) => trackUrl(url));
+    wc.on('did-navigate-in-page', (_e, url) => trackUrl(url));
     wc.on('page-title-updated', (_e, title) => spaces.noteTitle(space.id, tab.targetId, title));
   }
 
@@ -140,7 +148,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       win.contentView.addChildView(view);
       view.setBounds({ x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 });
       const wc = view.webContents;
-      const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : 'about:blank';
+      const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
       const marker = `about:blank#ego-${space.id}-${tab.targetId}`;
       tab.targetIdReady = (async () => {
         await wc.loadURL(marker);
