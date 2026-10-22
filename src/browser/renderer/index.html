@@ -19,9 +19,10 @@
     overflow-x: auto; }
   .tab { display: flex; align-items: center; gap: 6px; max-width: 200px; min-width: 80px;
     height: 32px; padding: 0 10px; border-radius: 8px 8px 0 0; background: #303134;
-    color: #bdc1c6; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    color: #bdc1c6; cursor: pointer; }
+  .tab .label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tab.active { background: #3c4043; color: #e8eaed; }
-  .tab .close { margin-left: auto; padding: 0 3px; border-radius: 50%; }
+  .tab .close { flex: 0 0 auto; margin-left: auto; padding: 0 3px; border-radius: 50%; }
   .tab .close:hover { background: #5f6368; }
   #newtab { height: 26px; width: 26px; border: 0; border-radius: 50%; background: transparent;
     color: #e8eaed; font-size: 16px; cursor: pointer; margin-bottom: 3px; }

@@ -26,6 +26,7 @@ function render() {
     el.className = `tab${tab.targetId === space.activeTargetId ? ' active' : ''}`;
     el.title = tab.url;
     const label = document.createElement('span');
+    label.className = 'label';
     label.textContent = tab.title || (tab.url !== 'about:blank' ? tab.url : 'New Tab');
     const close = document.createElement('span');
     close.className = 'close';
