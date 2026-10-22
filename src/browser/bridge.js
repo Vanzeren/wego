@@ -296,10 +296,20 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         ...(params.text !== undefined ? { text: params.text } : {}),
         ...(params.html !== undefined ? { html: params.html } : {}),
       });
+      const readActive = 'document.activeElement && ("value" in document.activeElement ? document.activeElement.value : document.activeElement.textContent)';
+      const beforeValue = await wc.executeJavaScript(readActive).catch(() => null);
       try {
         wc.focus();
         wc.paste();
-        await new Promise((r) => setTimeout(r, 80)); // let the paste land
+        // Wayland clipboard delivery is asynchronous and can exceed a fixed
+        // sleep under load: poll until the paste lands (bounded 400ms) before
+        // restoring the user's clipboard.
+        const deadline = Date.now() + 400;
+        while (Date.now() < deadline) {
+          const now = await wc.executeJavaScript(readActive).catch(() => beforeValue);
+          if (now !== beforeValue) break;
+          await new Promise((r) => setTimeout(r, 25));
+        }
       } finally {
         clipboard.write({ text: prev.text, html: prev.html });
       }
