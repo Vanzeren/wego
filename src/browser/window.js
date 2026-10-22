@@ -213,7 +213,19 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   // getBoundingClientRect/CDP Input for background agent tabs.
   let currentTop = null;
 
-  function wireTabView(space, tab, view) {
+  // Slim dark scrollbars for every page; pages with their own scrollbar
+// styling keep precedence on equal specificity via cascade order.
+const SCROLLBAR_CSS = `
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(128,128,128,.38); border-radius: 6px;
+  border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(128,128,128,.62); }
+::-webkit-scrollbar-button { display: none; }
+::-webkit-scrollbar-corner { background: transparent; }
+`;
+
+function wireTabView(space, tab, view) {
     const wc = view.webContents;
     // Global page zoom is re-applied on every navigation so Chromium's
     // per-origin zoom memory never diverges from the user's setting. Skip at
@@ -247,6 +259,13 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     wc.on('did-navigate', (_e, url) => trackUrl(url));
     wc.on('did-navigate-in-page', (_e, url) => trackUrl(url));
     wc.on('page-title-updated', (_e, title) => spaces.noteTitle(space.id, tab.targetId, title));
+    // re-inject per navigation; remove the previous copy first
+    let scrollbarCssKey = null;
+    wc.on('dom-ready', () => {
+      if (wc.isDestroyed()) return;
+      if (scrollbarCssKey) wc.removeInsertedCSS(scrollbarCssKey).catch(() => {});
+      wc.insertCSS(SCROLLBAR_CSS).then((k) => { scrollbarCssKey = k; }).catch(() => {});
+    });
   }
 
   const spaces = new SpaceManager({
