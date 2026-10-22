@@ -19,10 +19,11 @@ dependencies** — do not add any without explicit approval. Node ≥ 22, Electr
   in `/json/list`.
 - **All tab views stay attached to the window at full visible bounds**; the
   active one is raised in z-order. Detaching or offscreen-parking collapses
-  the layout viewport to 0x0 and silently breaks geometry/CDP Input. For the
-  same reason, `backgroundThrottling` must stay `false` on every tab view:
-  covered views are treated as hidden, and their delayed first paint shows
-  as a white flash on tab switch/create.
+  the layout viewport to 0x0 and silently breaks geometry/CDP Input. Covered
+  views reveal with `view.setBackgroundColor`, which MUST stay the dark
+  chrome color (`#17181c`) — a light color shows as a jarring flash on tab
+  switch/create. Agent-owned tabs additionally need
+  `backgroundThrottling: false` (automation timers); user tabs may throttle.
 - Error objects crossing the bridge carry `error_code` from protocol.md.
 
 ## Verify changes

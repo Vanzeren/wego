@@ -153,10 +153,12 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   const spaces = new SpaceManager({
     createView(space, tab) {
       const view = new WebContentsView({
-        // All tab views stay stacked and "visible"; Chromium would treat
-        // covered views as hidden and throttle them, which delays the first
-        // paint on tab switch and shows a white flash. Throttling stays off.
-        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+        // Agent tabs need timers/rAF at full rate; user tabs get Chromium's
+        // background throttling to save CPU. Covered views reveal with the
+        // (dark) view background, so the gap is invisible — see
+        // setBackgroundColor below. Edge case: a user space claimed by an
+        // agent keeps throttled tabs (claimTaskSpace does not recreate views).
+        webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: space.ownership === 'agent' ? false : true },
       });
       wireTabView(space, tab, view);
       // Match the chrome background: when a re-attached view (z-order raise on
