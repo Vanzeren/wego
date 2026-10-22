@@ -49,10 +49,16 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     } else {
       const tab = activeTabWc();
       if (!tab || tab.isDestroyed()) return null;
-      // setZoomLevel is browser-style page zoom: it changes the layout
-      // viewport (what sites and users expect from Ctrl+/-/0).
+      // Global page zoom: apply to every existing tab and force-apply on
+      // every navigation (see wireTabView), overriding Chromium's per-origin
+      // zoom memory.
       settings.pageZoomLevel = nextZoomLevel(tab.getZoomLevel(), dir);
-      tab.setZoomLevel(settings.pageZoomLevel);
+      for (const space of spaces.allSpaces()) {
+        for (const t of space.tabs) {
+          const wc = t.view?.webContents;
+          if (wc && !wc.isDestroyed()) wc.setZoomLevel(settings.pageZoomLevel);
+        }
+      }
     }
     saveSettings();
     return { uiZoom: settings.uiZoom, pageZoomLevel: settings.pageZoomLevel };
@@ -131,10 +137,16 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
 
   function wireTabView(space, tab, view) {
     const wc = view.webContents;
-    // Applying a zoom (even level 0) forces a layout recompute that can land
-    // between getContentQuads and Input.dispatchMouseEvent on fresh tabs —
-    // skip it entirely at the default.
+    // Global page zoom is re-applied on every navigation so Chromium's
+    // per-origin zoom memory never diverges from the user's setting. Skip at
+    // the default: applying a zoom forces a layout recompute that can race
+    // the first click on fresh tabs.
     if (settings.pageZoomLevel !== 0) wc.setZoomLevel(settings.pageZoomLevel);
+    wc.on('did-navigate', () => {
+      if (!wc.isDestroyed() && wc.getZoomLevel() !== settings.pageZoomLevel) {
+        wc.setZoomLevel(settings.pageZoomLevel);
+      }
+    });
     wireZoomInput(wc);
     // Popups (window.open / target=_blank) become tabs in the same space.
     wc.setWindowOpenHandler(({ url }) => {

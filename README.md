@@ -59,9 +59,9 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 
 - Frameless window with custom min/max/close controls; drag the chrome
   background to move, double-click to maximize.
-- HiDPI zoom: `Ctrl +/-/0` page zoom (layout, per-origin), `Ctrl+Shift +/-/0`
-  whole-UI zoom; both persist (`~/.wego/settings.json`), also adjustable
-  via the `appZoom` bridge method.
+- HiDPI zoom: `Ctrl +/-/0` page zoom (global: applies to all tabs and
+  persists across navigations), `Ctrl+Shift +/-/0` whole-UI zoom; both persist
+  (`~/.wego/settings.json`), also adjustable via the `appZoom` bridge method.
 
 - Task spaces: create / resume-by-name / claim / list, numeric ids, ownership
   (`user`/`agent`) and control state; user-control gating returns
