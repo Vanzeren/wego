@@ -62,6 +62,15 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       : { x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 },
     layoutViews,
     pushState,
+    // Screenshot of the content currently on top, as a data URL sized in CSS
+    // px — used by views.js for invisible compositor priming.
+    captureTopView: async () => {
+      const top = currentTop;
+      if (!top || top.webContents.isDestroyed()) return null;
+      const img = await top.webContents.capturePage();
+      if (img.isEmpty()) return null;
+      return 'data:image/png;base64,' + img.toPNG().toString('base64');
+    },
   };
 
   const zoomGlue = {

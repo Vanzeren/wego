@@ -185,10 +185,17 @@ export function setupViews(ctx) {
     view.setBounds(ctx.initialViewBounds(space));
     const wc = view.webContents;
     const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
-    // Dark data-URL marker (transparent while priming): unique (matched in
-    // /json/list to resolve the real CDP targetId) and invisible on screen.
-    const marker = `data:text/html,<!doctype html><style>html{background:transparent}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
+    // Invisible compositor priming: CDP Input.dispatchMouseEvent is silently
+    // dropped until the view paints a frame while on top. We prime with a
+    // pixel-perfect screenshot of the user's current content, so the one
+    // frame on top is indistinguishable from what was already there.
     tab.targetIdReady = (async () => {
+      let shot = null;
+      if (space.ownership === 'agent') shot = await ctx.captureTopView().catch(() => null);
+      const b = ctx.initialViewBounds(space);
+      const marker = shot
+        ? `data:text/html,<!doctype html><style>html,body{margin:0}img{display:block;width:${b.width}px;height:${b.height}px}</style><img src="${shot}"><!--wego-marker-${space.id}-${tab.targetId}-->`
+        : `data:text/html,<!doctype html><style>html{background:%2317181c}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
       await wc.loadURL(marker); // may reject if a racing goto aborts it
       const realId = await resolveCdpTargetId(marker, wc);
       ctx.spaces().noteTargetId(space.id, tab.targetId, realId);
