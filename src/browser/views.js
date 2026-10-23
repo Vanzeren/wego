@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { partitionForProfile as partitionFor } from './partitions.js';
 import { zoomFromKey } from './zoom.js';
+import { cleanUserAgent } from './ua.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -135,6 +136,7 @@ export function setupViews(ctx) {
       webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: space.ownership === 'agent' ? false : true },
     });
     wireTabView(space, tab, view);
+    view.webContents.setUserAgent(cleanUserAgent(view.webContents.getUserAgent()));
     // Match the chrome background: when a re-attached view (z-order raise on
     // tab switch) or a freshly created view has no compositor frame yet,
     // the area fills with this color — white here reads as a jarring flash.
