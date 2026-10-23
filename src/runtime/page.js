@@ -386,7 +386,15 @@ export class Page {
     if (!quads.length) {
       throw Object.assign(new Error(`Element has no clickable point: ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
     }
-    return { objectId, point: Page._quadCenter(quads[0]), session };
+    const q = quads[0];
+    const w = Math.abs(Math.max(q[2], q[4]) - Math.min(q[0], q[6]));
+    const h = Math.abs(Math.max(q[5], q[7]) - Math.min(q[1], q[3]));
+    if (w === 0 || h === 0) {
+      // Zero-area controls (e.g. collapsed submit buttons) silently swallow
+      // clicks at their center — refuse honestly instead of misclicking.
+      throw Object.assign(new Error(`Element has zero ${w === 0 ? 'width' : 'height'} (not clickable): ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
+    }
+    return { objectId, point: Page._quadCenter(q), session };
   }
 
   // receipt: popups/dialog observed after dispatch. Exits early after a

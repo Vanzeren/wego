@@ -153,14 +153,12 @@ export function setupViews(ctx) {
       await wc.loadURL(marker);
       const realId = await resolveCdpTargetId(marker, wc);
       ctx.spaces().noteTargetId(space.id, tab.targetId, realId);
+      // Readiness covers the intended page too: bridge listTabs/createTab
+      // await this promise, so a racing SDK goto can never be clobbered by a
+      // late new-tab-page load.
+      if (!wc.isDestroyed()) await wc.loadURL(intended).catch(() => {});
       return realId;
     })();
-    // The real URL loads only after the marker round-trip so the target
-    // list match above cannot race it away.
-    tab.targetIdReady.then(() => {
-      if (wc.isDestroyed()) return;
-      wc.loadURL(intended).catch(() => {});
-    }).catch(() => {});
     return view;
   }
 
