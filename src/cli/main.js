@@ -80,12 +80,17 @@ function resolveElectron() {
 }
 
 // Start the browser if the bridge is unreachable, wait for readiness.
+// Electron stderr goes to <stateDir>/electron-stderr.log — a silent launch
+// failure (missing system libs, sandbox helper) is otherwise undiagnosable.
 async function ensureBrowser() {
   if (await probeSocket(socketPath())) return;
   const electron = resolveElectron();
+  let stderrFd = 'ignore';
+  const logFile = path.join(path.dirname(socketPath()), 'electron-stderr.log');
+  try { stderrFd = fs.openSync(logFile, 'a'); } catch { /* state dir not writable */ }
   const child = spawn(electron, [repoRoot], {
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', stderrFd],
     env: process.env, // WEGO_BRIDGE_SOCK passes through when set
   });
   child.unref();
@@ -96,6 +101,10 @@ async function ensureBrowser() {
     if (await probeSocket(socketPath())) return;
   }
   console.error('failed to start the wego browser');
+  try {
+    const log = fs.readFileSync(logFile, 'utf8');
+    if (log.trim()) console.error('last electron stderr:\n' + log.trim().split('\n').slice(-15).join('\n'));
+  } catch { /* no log captured */ }
   process.exit(1);
 }
 

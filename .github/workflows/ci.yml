@@ -31,3 +31,6 @@ jobs:
         run: xvfb-run -a npm run smoke
         env:
           CI: "true"
+          # npm-extracted chrome-sandbox loses its setuid bit; CI containers
+          # can't fix it, so disable Chromium's sandbox (CI-only).
+          ELECTRON_DISABLE_SANDBOX: "true"
