@@ -11,6 +11,11 @@ onboarding, persistent spaces, HiDPI zoom, frameless UI).
 
 Built on Electron 38 (Chromium) + Node.js. Zero npm dependencies.
 
+Looking for **ego-lite on Linux**, an **AI agent browser for Linux**, or a
+way to run **browser automation against your logged-in session** without
+exporting cookies? That's exactly what wego is for. It also connects to
+Playwright and other CDP clients — see [Integrations](docs/integrations.md).
+
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ Electron app (wego)                                      │
