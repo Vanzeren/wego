@@ -72,7 +72,9 @@ export async function keyDown(session, desc) {
   await session.send('Input.dispatchKeyEvent', {
     type: main.text ? 'keyDown' : 'rawKeyDown',
     key: main.key,
-    code: main.code,
+    // code may be null for printable non-alphanumerics (e.g. '@'); CDP
+    // rejects null — omit it instead.
+    ...(main.code ? { code: main.code } : {}),
     windowsVirtualKeyCode: main.vk,
     nativeVirtualKeyCode: main.vk,
     modifiers,
@@ -85,7 +87,7 @@ export async function keyUp(session, desc) {
   await session.send('Input.dispatchKeyEvent', {
     type: 'keyUp',
     key: main.key,
-    code: main.code,
+    ...(main.code ? { code: main.code } : {}),
     windowsVirtualKeyCode: main.vk,
     nativeVirtualKeyCode: main.vk,
     modifiers,

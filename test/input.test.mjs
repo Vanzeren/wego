@@ -60,6 +60,15 @@ test('pressKey on printable char uses keyDown with text', async () => {
   assert.equal(s.calls[0].params.text, 'x');
 });
 
+test('pressKey on symbols omits code (CDP rejects null)', async () => {
+  const s = recorder();
+  await pressKey(s, '@');
+  assert.equal(s.calls[0].params.type, 'keyDown');
+  assert.equal(s.calls[0].params.text, '@');
+  assert.equal('code' in s.calls[0].params, false);
+  assert.equal('code' in s.calls[1].params, false); // keyUp too
+});
+
 test('typeText presses every character', async () => {
   const s = recorder();
   await typeText(s, 'abc');
