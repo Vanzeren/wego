@@ -66,6 +66,9 @@ async function syntheticPointer(session, objectId, point, { clickCount = 1, hove
   const fn = `function(x, y, count, hover) {
     const mk = (type) => new (type.startsWith('pointer') ? PointerEvent : MouseEvent)(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
     if (hover) { this.dispatchEvent(mk('pointermove')); this.dispatchEvent(mk('mousemove')); return; }
+    // real clicks focus on mousedown — synthetic ones must too (paste and
+    // keyboard follow the focused element)
+    if (this.focus) { try { this.focus(); } catch {} }
     for (let i = 0; i < count; i++) {
       for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) this.dispatchEvent(mk(type));
     }
