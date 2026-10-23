@@ -298,6 +298,8 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       });
       const readActive = 'document.activeElement && ("value" in document.activeElement ? document.activeElement.value : document.activeElement.textContent)';
       const beforeValue = await wc.executeJavaScript(readActive).catch(() => null);
+      const t0 = Date.now();
+      let landed = false;
       try {
         wc.focus();
         wc.paste();
@@ -307,11 +309,14 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         const deadline = Date.now() + 400;
         while (Date.now() < deadline) {
           const now = await wc.executeJavaScript(readActive).catch(() => beforeValue);
-          if (now !== beforeValue) break;
+          if (now !== beforeValue) { landed = true; break; }
           await new Promise((r) => setTimeout(r, 25));
         }
       } finally {
         clipboard.write({ text: prev.text, html: prev.html });
+      }
+      if (process.env.WEGO_DEBUG_PASTE) {
+        console.error(`[paste-debug] landed=${landed} elapsed=${Date.now() - t0}ms before=${JSON.stringify(beforeValue)}`);
       }
       return `${id} pasted.`;
     },
