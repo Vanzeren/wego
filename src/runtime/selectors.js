@@ -175,7 +175,20 @@ const RESOLVER_FN = String.raw`function __egoResolve(sel) {
 
   if (matches.length === 0) return { count: 0 };
   if (matches.length > 1) return { count: matches.length };
-  const el = matches[0];
+  let el = matches[0];
+  if (!visible(el)) {
+    // A matched leaf may be a zero-area text carrier (e.g. an invisible span
+    // inside a visible link). Climb to a unique interactive ancestor — the
+    // same reading ego gives to wrapper matches. Shadow boundaries crossed
+    // via getRootNode().host.
+    let cur = el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
+    while (cur && cur.nodeType === 1) {
+      const interactive = cur.matches('a[href],button,[role="button"],[role="link"],input,select,textarea,summary,[tabindex],[onclick]');
+      if (interactive && visible(cur)) { el = cur; break; }
+      if (interactive) break; // interactive but still invisible: stop climbing
+      cur = cur.parentElement || (cur.getRootNode && cur.getRootNode().host) || null;
+    }
+  }
   return { count: 1, visible: visible(el), disabled: disabled(el), element: el };
 }`;
 
@@ -198,7 +211,7 @@ export async function resolveTarget(page, target, { checkActionable = false } = 
 
   const session = await page._session();
   const { result, exceptionDetails } = await session.send('Runtime.evaluate', {
-    expression: `(()=>{const r=(${RESOLVER_FN})(${JSON.stringify(target)});if(!r||r.error||r.count!==1)return{error:r&&r.error,count:r?r.count:0};return{count:1,visible:r.visible,disabled:r.disabled,hasElement:!!r.element}})()`,
+    expression: `(()=>{const r=(${RESOLVER_FN})(${JSON.stringify(target)});if(!r||r.error||r.count!==1)return{error:r&&r.error,count:r?r.count:0};return{count:1,visible:r.visible,disabled:r.disabled,hasElement:!!r.element};})()`,
     returnByValue: true,
     includeCommandLineAPI: false,
   });

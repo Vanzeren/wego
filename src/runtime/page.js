@@ -39,6 +39,22 @@ function withTimeout(promise, ms, what) {
   return Promise.race([promise, t]).finally(() => clearTimeout(timer));
 }
 
+// getContentQuads returns one quad per inline box fragment — the first can be
+// a zero-width child (e.g. an inline link wrapping a collapsed span). The
+// clickable point is the UNION of all fragments.
+export function quadUnionBox(quads) {
+  const xs = [];
+  const ys = [];
+  for (const q of quads) {
+    for (let i = 0; i < 8; i += 2) { xs.push(q[i]); ys.push(q[i + 1]); }
+  }
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  return { left, top, width: right - left, height: bottom - top, cx: (left + right) / 2, cy: (top + bottom) / 2 };
+}
+
 // ---------------------------------------------------------------- Page
 
 export class Page {
@@ -389,13 +405,6 @@ export class Page {
     return result.value ? [result.value] : [];
   }
 
-  static _quadCenter(quad) {
-    // quad: [x1,y1, x2,y2, x3,y3, x4,y4]
-    const xs = [quad[0], quad[2], quad[4], quad[6]];
-    const ys = [quad[1], quad[3], quad[5], quad[7]];
-    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
-  }
-
   async _scrollIntoView(objectId, session) {
     try {
       await session.send('DOM.scrollIntoViewIfNeeded', { objectId });
@@ -417,15 +426,13 @@ export class Page {
     if (!quads.length) {
       throw Object.assign(new Error(`Element has no clickable point: ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
     }
-    const q = quads[0];
-    const w = Math.abs(Math.max(q[2], q[4]) - Math.min(q[0], q[6]));
-    const h = Math.abs(Math.max(q[5], q[7]) - Math.min(q[1], q[3]));
-    if (w === 0 || h === 0) {
+    const box = quadUnionBox(quads);
+    if (box.width === 0 || box.height === 0) {
       // Zero-area controls (e.g. collapsed submit buttons) silently swallow
       // clicks at their center — refuse honestly instead of misclicking.
-      throw Object.assign(new Error(`Element has zero ${w === 0 ? 'width' : 'height'} (not clickable): ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
+      throw Object.assign(new Error(`Element has zero ${box.width === 0 ? 'width' : 'height'} (not clickable): ${target}`), { kind: 'not_actionable', name: 'ElementResolutionError' });
     }
-    return { objectId, point: Page._quadCenter(q), session };
+    return { objectId, point: { x: box.cx, y: box.cy }, session };
   }
 
   // receipt: popups/dialog observed after dispatch. Exits early after a

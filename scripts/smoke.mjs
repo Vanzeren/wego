@@ -108,6 +108,12 @@ const pastedHtml = await page.evaluate(() => document.getElementById('email').va
 assert(pastedHtml === 'plain', 'keyboard.paste({html}) is accepted, got: ' + pastedHtml);
 console.log('smoke assert ok: subtree scope and clipboard paste');
 
+// text selector on a zero-area carrier climbs to its interactive ancestor
+await page.goto(${JSON.stringify(baseUrl + '/page.html')});
+await page.click('text="wrapee"');
+await page.waitForURL(/page2/, { timeout: 5000 });
+console.log('smoke assert ok: zero-area text carrier climbed to ancestor link');
+
 await task.finish({ keep: [] });
 console.log('SMOKE SCRIPT DONE');
 `;
