@@ -77,6 +77,28 @@ export class Page {
         await session.send('Page.enable');
         await session.send('Runtime.enable').catch(() => {});
         await session.send('Network.enable').catch(() => {});
+        // JS dialogs: native UI is disabled (disableDialogs); record every
+        // call via a binding so receipts/info() still surface them, with
+        // safe auto-dismiss defaults (confirm→false, prompt→null).
+        const shim = `(() => {
+          const record = (type, message, ret) => {
+            const entry = { type, message: String(message ?? ''), at: Date.now() };
+            (globalThis.__wegoDialogLog = globalThis.__wegoDialogLog || []).push(entry);
+            try { globalThis.__wegoDialog(JSON.stringify(entry)); } catch {}
+            return ret;
+          };
+          window.alert = (m) => record('alert', m, undefined);
+          window.confirm = (m) => record('confirm', m, false);
+          window.prompt = (m) => record('prompt', m, null);
+        })();`;
+        await session.send('Page.addScriptToEvaluateOnNewDocument', { source: shim }).catch(() => {});
+        await session.send('Runtime.evaluate', { expression: shim }).catch(() => {});
+        await session.send('Runtime.addBinding', { name: '__wegoDialog' }).catch(() => {});
+        session.on('Runtime.bindingCalled', (p) => {
+          if (p.name !== '__wegoDialog') return;
+          try { this._dialog = JSON.parse(p.payload); } catch { /* malformed */ }
+          this._recordEvent('Runtime.bindingCalled', { name: p.name });
+        });
 
         session.on('Page.javascriptDialogOpening', (p) => {
           this._dialog = { type: p.type, message: p.message };
@@ -103,19 +125,9 @@ export class Page {
         session.on('Network.loadingFinished', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
         session.on('Network.loadingFailed', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
 
-        // download events arrive on the page session after setDownloadBehavior
-        session.on('Browser.downloadWillBegin', (p) => {
-          const dl = new Download(this, p.guid, p.url, p.suggestedFilename);
-          this._activeDownloads.set(p.guid, dl);
-          this._recordEvent('Browser.downloadWillBegin', p);
-          const waiters = this._downloadWaiters.splice(0);
-          for (const w of waiters) w(dl);
-        });
-        session.on('Browser.downloadProgress', (p) => {
-          const dl = this._activeDownloads.get(p.guid);
-          if (dl && p.state === 'completed') dl._resolveDone();
-          if (dl && p.state === 'canceled') dl._resolveDone();
-        });
+        // Downloads: Electron routes them through session.will-download, and
+        // CDP download events never fire — the SDK waits on the bridge
+        // registry instead (see waitForEvent('download')).
 
         // buffer remaining events as summaries
         for (const m of ['Page.loadEventFired', 'Page.domContentEventFired', 'Page.frameNavigated', 'Console.messageAdded']) {
@@ -275,17 +287,36 @@ export class Page {
       return withTimeout(new Promise((r) => this._popupWaiters.push(r)), timeout, "waitForEvent('popup')");
     }
     if (name === 'download') {
-      const session = await this._session();
-      const dir = path.join(os.tmpdir(), 'ego-downloads');
-      await fs.promises.mkdir(dir, { recursive: true });
-      await session.send('Browser.setDownloadBehavior', {
-        behavior: 'allow', downloadPath: dir, eventsEnabled: true,
-      }).catch(async () => {
-        await session.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: dir }).catch(() => {});
-      });
-      const dl = await withTimeout(new Promise((r) => this._downloadWaiters.push(r)), timeout, "waitForEvent('download')");
-      dl._path = path.join(dir, dl._guid);
-      return dl;
+      // Downloads live in the bridge registry (browser-side will-download
+      // handler); CDP download events do not fire under Electron.
+      const ego = this._ctx().ego;
+      const listDownloads = async () =>
+        (await ego._call('downloads').catch(() => ({ downloads: [] }))).downloads ?? [];
+      const known = new Map((await listDownloads()).map((d) => [d.url, d.savePath]));
+      return withTimeout((async () => {
+        for (;;) {
+          for (const d of await listDownloads()) {
+            const knownPath = known.get(d.url);
+            const isNew = knownPath === undefined;
+            const restarted = knownPath !== undefined && knownPath !== d.savePath && d.state === 'progressing';
+            if (isNew || restarted) {
+              known.set(d.url, d.savePath);
+              const dl = new Download(this, null, d.url, d.filename);
+              dl._path = d.savePath;
+              // resolve done when the registry entry settles
+              (async () => {
+                for (;;) {
+                  const cur = (await listDownloads()).find((x) => x.savePath === dl._path);
+                  if (!cur || cur.state !== 'progressing') { dl._resolveDone(); return; }
+                  await new Promise((r) => setTimeout(r, 200));
+                }
+              })();
+              return dl;
+            }
+          }
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      })(), timeout, "waitForEvent('download')");
     }
     throw Object.assign(new TypeError(`waitForEvent: unknown event ${name}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
   }
@@ -586,19 +617,21 @@ export class Page {
 
   // ---- dialogs ----
 
+  // Dialogs are recorded by the in-page shim and auto-dismissed with safe
+  // defaults (Electron shows native dialogs which wedge automation). Accept
+  // acknowledges and clears the current record; promptText is accepted for
+  // API compatibility but cannot retro-answer an already-continued prompt.
   async acceptDialog(promptText) {
-    const session = await this._session();
-    await session.send('Page.handleJavaScriptDialog', {
-      accept: true,
-      ...(promptText !== undefined ? { promptText: String(promptText) } : {}),
-    });
+    void promptText;
+    const d = this._dialog;
     this._dialog = null;
+    return d;
   }
 
   async dismissDialog() {
-    const session = await this._session();
-    await session.send('Page.handleJavaScriptDialog', { accept: false });
+    const d = this._dialog;
     this._dialog = null;
+    return d;
   }
 
   // ---- evaluate / fetch / screenshot / cdp ----

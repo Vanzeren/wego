@@ -40,6 +40,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     win,
     settings,
     httpEndpoint,
+    downloads: new Map(), // url → { savePath, filename, state } (views.js fills)
     spaces: () => spaces,
     activeTabWc: () => {
       const space = spaces.getActive();
@@ -172,6 +173,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   return {
     win,
     spaces,
+    downloads: ctx.downloads,
     applyZoom: zoomGlue.applyZoom,
     focus() {
       if (win.isDestroyed()) return;

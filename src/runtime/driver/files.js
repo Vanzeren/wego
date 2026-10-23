@@ -12,20 +12,40 @@ export class Download {
     this._guid = guid;
     this._url = url;
     this._suggested = suggestedFilename;
-    this._path = null;
+    this._path = null; // real save path, resolved from the bridge registry
     this._done = new Promise((resolve) => { this._resolveDone = resolve; });
   }
   url() { return this._url; }
   suggestedFilename() { return this._suggested; }
-  path() { return this._path; }
+
+  // The actual file lives where the browser's will-download handler put it;
+  // resolve (and wait briefly for registration) through the bridge.
+  async _resolvePath() {
+    if (this._path) return this._path;
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const { downloads } = await this._page._ctx().ego._call('downloads').catch(() => ({ downloads: [] }));
+      const hit = (downloads ?? []).find((d) => d.url === this._url);
+      if (hit?.savePath) {
+        this._path = hit.savePath;
+        if (hit.state === 'completed') this._resolveDone();
+        return this._path;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new CDPError(`download not registered by the browser: ${this._url}`, 'WEGO_OPERATION_FAILED');
+  }
+
+  async path() { return this._resolvePath(); }
   async saveAs(absPath) {
     if (!path.isAbsolute(absPath)) throw Object.assign(new Error('saveAs path must be absolute'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     await this._done;
     await fs.promises.mkdir(path.dirname(absPath), { recursive: true });
-    await fs.promises.copyFile(this._path, absPath);
+    await fs.promises.copyFile(await this._resolvePath(), absPath);
     return absPath;
   }
   async cancel() {
+    if (!this._guid) return; // Electron path: no CDP guid; leave the file
     await this._page._session().then((s) => s.send('Browser.cancelDownload', { guid: this._guid })).catch(() => {});
   }
 }

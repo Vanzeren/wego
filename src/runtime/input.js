@@ -54,10 +54,12 @@ export function parseKeySpec(spec) {
   if (typeof spec !== 'string' || spec === '') {
     throw Object.assign(new TypeError('key must be a non-empty string'), { error_code: 'WEGO_INVALID_ARGUMENT' });
   }
-  const parts = spec.split('+').map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) throw Object.assign(new Error(`Unknown key: ${spec}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
+  // A lone space is a key, not padding: trim chord parts but keep ' '.
+  const parts = spec.split('+').map((p) => (p === ' ' || p === '  ' ? ' ' : p.trim()));
+  const kept = parts.filter((p, i) => p !== '' || parts[i] === ' ');
+  if (kept.length === 0) throw Object.assign(new Error(`Unknown key: ${spec}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
+  const keys = kept.map((p) => (p === 'ControlOrMeta' ? 'Control' : p));
   let modifiers = 0;
-  const keys = parts.map((p) => (p === 'ControlOrMeta' ? 'Control' : p));
   for (const k of keys.slice(0, -1)) {
     const d = describeSingleKey(k);
     if (!d.modifier) throw Object.assign(new Error(`Non-modifier key in chord position: ${k}`), { error_code: 'WEGO_INVALID_ARGUMENT' });

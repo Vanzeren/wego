@@ -87,6 +87,19 @@ test('typeText presses every character', async () => {
   assert.deepEqual(keys, ['a', 'b', 'c']);
 });
 
+test('typeText handles spaces; parseKeySpec keeps a lone space', async () => {
+  const d = parseKeySpec(' ');
+  assert.equal(d.main.key, ' ');
+  assert.equal(d.main.code, 'Space');
+  assert.equal(d.main.text, ' ');
+  const s = recorder();
+  await typeText(s, 'a b');
+  const keys = s.calls.filter((c) => c.params.type === 'keyDown').map((c) => c.params.key);
+  assert.deepEqual(keys, ['a', ' ', 'b']);
+  // chord with spaces around + still trims
+  assert.equal(parseKeySpec('Control + a').keys.join('|'), 'Control|a');
+});
+
 test('mouseEvent sends CDP params with defaults', async () => {
   const s = recorder();
   await mouseEvent(s, 'mousePressed', 10, 20, { button: 'left', buttons: 1, clickCount: 2 });

@@ -4,6 +4,7 @@
 // Receives a late-bound ctx (refs assigned by window.js as they come up).
 import { WebContentsView } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { partitionForProfile as partitionFor } from './partitions.js';
 import { zoomFromKey } from './zoom.js';
@@ -36,6 +37,31 @@ export function setupViews(ctx) {
   // ctx: { win, httpEndpoint, settings, applyZoom, toggleFindbar,
   //        activeTabWc(), findbar: { isVisible(), view() }, spaces() }
   const { win, httpEndpoint, settings } = ctx;
+
+  // Electron shows a native save dialog for downloads unless a will-download
+  // handler sets a path — CDP Browser.setDownloadBehavior alone does NOT stop
+  // it. Policy: save to ~/Downloads with Chrome-style dedupe (" (n)" suffix),
+  // and record every download in ctx.downloads (url → {savePath,state}) so
+  // the SDK can resolve the real file via the bridge `downloads` method.
+  const wiredSessions = new WeakSet();
+  function wireDownloads(wc) {
+    if (wiredSessions.has(wc.session)) return;
+    wiredSessions.add(wc.session);
+    wc.session.on('will-download', (_e, item) => {
+      const dir = path.join(process.env.HOME || '/tmp', 'Downloads');
+      fs.mkdirSync(dir, { recursive: true });
+      let target = path.join(dir, item.getFilename());
+      for (let n = 1; fs.existsSync(target); n++) {
+        const ext = path.extname(item.getFilename());
+        target = path.join(dir, `${item.getFilename().slice(0, -ext.length)} (${n})${ext}`);
+      }
+      item.setSavePath(target);
+      const entry = { url: item.getURL(), filename: item.getFilename(), savePath: target, state: 'progressing' };
+      ctx.downloads.set(item.getURL(), entry);
+      item.on('updated', (_ev, state) => { entry.state = state === 'interrupted' ? 'interrupted' : 'progressing'; });
+      item.once('done', (_ev, state) => { entry.state = state; }); // 'completed' | 'cancelled' | 'interrupted'
+    });
+  }
 
   // Shared target-list cache: concurrent tab creations would otherwise each
   // fetch and parse /json/list per poll iteration.
@@ -133,9 +159,18 @@ export function setupViews(ctx) {
       // (dark) view background, so the gap is invisible — see
       // setBackgroundColor below. Edge case: a user space claimed by an
       // agent keeps throttled tabs (claimTaskSpace does not recreate views).
-      webPreferences: { partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: space.ownership === 'agent' ? false : true },
+      webPreferences: {
+        partition: partitionFor(space.profileId), contextIsolation: true, nodeIntegration: false, sandbox: true,
+        backgroundThrottling: space.ownership === 'agent' ? false : true,
+        // Electron's dialog manager would open NATIVE windows for
+        // alert/confirm/prompt, wedging the renderer and our CDP session.
+        // Suppress them; the SDK installs a recording shim instead
+        // (page.js _session: Runtime.addBinding + init script).
+        disableDialogs: true,
+      },
     });
     wireTabView(space, tab, view);
+    wireDownloads(view.webContents);
     view.webContents.setUserAgent(cleanUserAgent(view.webContents.getUserAgent()));
     // Match the chrome background: when a re-attached view (z-order raise on
     // tab switch) or a freshly created view has no compositor frame yet,

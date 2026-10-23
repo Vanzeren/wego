@@ -267,6 +267,12 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       return out;
     },
 
+    // Downloads registry: url → { savePath, filename, state }. The SDK's
+    // Download objects resolve their real file through this.
+    downloads: () => ({
+      downloads: [...(windowApi.downloads?.values() ?? [])],
+    }),
+
     getCDPEndpoint: () => ({
       webSocketDebuggerUrl: cdp.webSocketDebuggerUrl,
       httpEndpoint: cdp.httpEndpoint,

@@ -63,9 +63,11 @@ async function setup(t, { failTabResolution = false, failPageZoom = false } = {}
   spaces.createPersonalSpace();
   spaces.addUserTab(1, 'about:blank');
   const highlights = [];
+  const downloads = new Map();
   const bridge = await startBridgeServer({
     spaces,
     windowApi: {
+      downloads,
       sendHighlight: (pt) => highlights.push(pt),
       applyZoom: (scope, dir) => {
         zoomCalls.push({ scope, dir });
@@ -81,7 +83,7 @@ async function setup(t, { failTabResolution = false, failPageZoom = false } = {}
     delete process.env.WEGO_BRIDGE_SOCK;
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  return { spaces, sockPath, dir, highlights, zoomCalls };
+  return { spaces, sockPath, dir, highlights, zoomCalls, downloads };
 }
 
 test('ping and meta endpoints', async (t) => {
@@ -245,4 +247,12 @@ test('appZoom page scope surfaces missing active tab', async (t) => {
   const { sockPath } = await setup(t, { failPageZoom: true });
   const r = await request(sockPath, 'appZoom', { scope: 'page', dir: 1 });
   assert.equal(r.error.error_code, 'WEGO_WEB_CONTENTS_UNAVAILABLE');
+});
+
+test('downloads method exposes the registry', async (t) => {
+  const { sockPath, downloads } = await setup(t);
+  downloads.set('https://x/f.zip', { url: 'https://x/f.zip', filename: 'f.zip', savePath: '/home/u/Downloads/f.zip', state: 'completed' });
+  const r = await request(sockPath, 'downloads');
+  assert.equal(r.result.downloads.length, 1);
+  assert.equal(r.result.downloads[0].savePath, '/home/u/Downloads/f.zip');
 });

@@ -430,6 +430,12 @@ browser semantics.
 
 ## Linux notes
 
+- JS dialogs (`alert`/`confirm`/`prompt`): Electron would show native windows
+  that wedge automation, so wego disables them and records every call via an
+  in-page shim: dialogs surface in action receipts and `page.info().dialog`,
+  and auto-resolve with safe defaults (`confirm`→false, `prompt`→null).
+  `acceptDialog()`/`dismissDialog()` acknowledge and clear the record; they
+  cannot retro-answer an already-continued `prompt()`.
 - `keyboard.paste({ text, html? })` writes the clipboard, performs a native
   paste at the current focus, then restores the user's previous clipboard
   contents. `text` is the plain-text fallback when `html` is given.
