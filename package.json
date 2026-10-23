@@ -15,7 +15,7 @@
   "scripts": {
     "start": "electron .",
     "cli": "node bin/wego-browser",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "smoke": "node scripts/smoke.mjs",
     "dist": "electron-builder --linux AppImage --publish never"
   },
