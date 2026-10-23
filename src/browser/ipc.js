@@ -2,10 +2,26 @@
 // find bar, space management) are never gated by space control; tab mutations
 // require the active space to be user-controlled.
 export function setupIpc(ctx, ipcMain) {
-  // ctx: { win, spaces(), activeWc(), findbar, zoomDefaultsNote }
+  // ctx: { win, spaces(), activeTabWc(), findbar, pushState() }
   let findText = '';
 
-  ipcMain.handle('ui:action', (_e, msg) => {
+  // Only the chrome page and the find-bar view may dispatch ui:action.
+  function isTrustedSender(event) {
+    if (event.sender === ctx.win.webContents) return true;
+    const fb = ctx.findbar?.view?.();
+    return !!fb && !fb.webContents.isDestroyed() && event.sender === fb.webContents;
+  }
+
+  // A click can race a tab's demise; a stale targetId (WEGO_INVALID_ARGUMENT)
+  // must no-op instead of rejecting the handle promise (ui.js never catches).
+  function swallowStale(fn) {
+    try { fn(); } catch (e) {
+      if (e?.error_code !== 'WEGO_INVALID_ARGUMENT') throw e;
+    }
+  }
+
+  ipcMain.handle('ui:action', (event, msg) => {
+    if (!isTrustedSender(event)) return;
     const { type } = msg ?? {};
     const space = ctx.spaces().getActive();
     const userEditable = !!space && space.control === 'user';
@@ -23,15 +39,15 @@ export function setupIpc(ctx, ipcMain) {
         if (userEditable) ctx.spaces().addUserTab(space.id, typeof msg.url === 'string' && msg.url ? msg.url : 'about:blank');
         break;
       case 'closeTab':
-        if (userEditable && typeof msg.targetId === 'string') ctx.spaces().closeUserTab(space.id, msg.targetId);
+        if (userEditable && typeof msg.targetId === 'string') swallowStale(() => ctx.spaces().closeUserTab(space.id, msg.targetId));
         break;
       case 'moveTab':
         if (userEditable && typeof msg.targetId === 'string' && Number.isInteger(msg.toIndex)) {
-          ctx.spaces().moveUserTab(space.id, msg.targetId, msg.toIndex);
+          swallowStale(() => ctx.spaces().moveUserTab(space.id, msg.targetId, msg.toIndex));
         }
         break;
       case 'activateTab':
-        if (userEditable && typeof msg.targetId === 'string') ctx.spaces().activateUserTab(space.id, msg.targetId);
+        if (userEditable && typeof msg.targetId === 'string') swallowStale(() => ctx.spaces().activateUserTab(space.id, msg.targetId));
         break;
       // Find bar: meta operation over the active tab, never gated.
       case 'findToggle': ctx.findbar.toggle(); break;

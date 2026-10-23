@@ -12,6 +12,7 @@ export class Download {
     this._guid = guid;
     this._url = url;
     this._suggested = suggestedFilename;
+    this._id = null; // bridge registry id (url#N), set by the waitForEvent poller
     this._path = null; // real save path, resolved from the bridge registry
     this._done = new Promise((resolve) => { this._resolveDone = resolve; });
   }
@@ -19,13 +20,14 @@ export class Download {
   suggestedFilename() { return this._suggested; }
 
   // The actual file lives where the browser's will-download handler put it;
-  // resolve (and wait briefly for registration) through the bridge.
+  // resolve (and wait briefly for registration) through the bridge. Entries
+  // are keyed by a unique id (url#N) so same-URL downloads stay distinct.
   async _resolvePath() {
     if (this._path) return this._path;
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
       const { downloads } = await this._page._ctx().ego._call('downloads').catch(() => ({ downloads: [] }));
-      const hit = (downloads ?? []).find((d) => d.url === this._url);
+      const hit = (downloads ?? []).find((d) => (this._id ? d.id === this._id : d.url === this._url));
       if (hit?.savePath) {
         this._path = hit.savePath;
         if (hit.state === 'completed') this._resolveDone();

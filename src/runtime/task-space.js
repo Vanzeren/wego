@@ -21,7 +21,7 @@ export class TaskSpace {
     ego.useTaskSpace(this.spaceId);
 
     // popups/new tabs discovered via Target.targetCreated get labels on demand
-    ctx.cdp.browser.on('Target.targetCreated', (p) => {
+    this._popupDiscovery = ctx.cdp.browser.on('Target.targetCreated', (p) => {
       const info = p.targetInfo;
       if (!info || info.type !== 'page') return;
       // browser-level events carry openerTargetId for window.open popups
@@ -133,6 +133,8 @@ export class TaskSpace {
   async finish({ keep = [] } = {}) {
     if (this._finished) return;
     this._finished = true;
+    this._popupDiscovery?.(); // drop the shared browser-session listener
+    this._popupDiscovery = null;
     const ego = this._ctx.ego;
     ego.useTaskSpace(this.spaceId);
     const keepSet = new Set(keep);

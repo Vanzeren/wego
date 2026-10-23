@@ -48,20 +48,23 @@ function validateSnapshotOptions(options) {
   for (const [k, v] of [['interactiveOnly', interactiveOnly], ['includeActionMarks', includeActionMarks], ['includeStableLocator', includeStableLocator]]) {
     if (v !== undefined && typeof v !== 'boolean') throw bad(`options.${k} must be a boolean`);
   }
-  if (maxResultLength !== undefined && (typeof maxResultLength !== 'number' || maxResultLength < 0)) {
-    throw bad('options.maxResultLength must be a non-negative number');
+  if (maxResultLength !== undefined && (typeof maxResultLength !== 'number' || !Number.isInteger(maxResultLength) || maxResultLength < 0)) {
+    throw bad('options.maxResultLength must be a non-negative integer');
   }
   return options;
 }
 
 // NDJSON JSON-RPC server on the bridge Unix socket. See docs/protocol.md.
-export async function startBridgeServer({ spaces, windowApi, cdp }) {
+// Raw CDP tunnels over this socket: the `cdpMessage` method dispatches raw
+// CDP message objects to a per-connection VirtualCdpServer client; responses
+// and events are pushed back as { event: "cdp", message } lines.
+export async function startBridgeServer({ spaces, windowApi, cdpServer }) {
   let captureSnapshot = null;
   let clipboard = null;
   try {
     const engine = await import('./snapshot/index.js');
     captureSnapshot = engine.captureSnapshot;
-    engine.configureSnapshot({ webSocketDebuggerUrl: cdp.webSocketDebuggerUrl });
+    engine.configureSnapshot({ cdpServer });
   } catch {
     captureSnapshot = null; // snapshot engine slice not present
   }
@@ -74,6 +77,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
   const sockPath = process.env.WEGO_BRIDGE_SOCK || path.join(os.homedir(), '.wego', 'bridge.sock');
   const stateDir = path.dirname(sockPath);
   fs.mkdirSync(stateDir, { recursive: true });
+  try { fs.chmodSync(stateDir, 0o700); } catch { /* non-POSIX fs */ }
   try { fs.unlinkSync(sockPath); } catch { /* no stale socket */ }
 
   // Profile registry: Default always exists; extra profiles persist here and
@@ -119,7 +123,6 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
     getBrowserVersion: () => ({
       currentVersion: '0.1.0',
       updateAvailable: false,
-      cdpEndpoint: cdp.webSocketDebuggerUrl,
     }),
 
     listProfiles: () => ({
@@ -148,7 +151,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       const { importChromeCookieDescriptors } = await import('./chrome-import.js');
       const { partitionForProfile } = await import('./partitions.js');
       const { cookies, undecryptable, expired, total } = await importChromeCookieDescriptors(
-        chromeDir ? { chromeDir } : {},
+        chromeDir ? { chromeDir, stateDir } : { stateDir },
       );
       const ses = session.fromPartition(partitionForProfile(profile.id));
       let imported = 0;
@@ -248,7 +251,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         : space.tabs.find((t) => t.targetId === space.activeTargetId);
       const wc = tab?.view?.webContents;
       if (!wc || wc.isDestroyed()) {
-        throw err('WEGO_WEB_CONTENTS_UNAVAILABLE', `Web contents unavailable: ${targetId ?? `space ${id} has no active tab`}`);
+        throw bad(`Unknown or destroyed tab: ${targetId ?? `space ${id} has no active tab`}`);
       }
       if (!captureSnapshot) throw err('WEGO_SNAPSHOT_FAILED', 'snapshot engine unavailable');
       // Real Chromium targetId enables OOPIF ownership checks in the engine.
@@ -273,10 +276,33 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       downloads: [...(windowApi.downloads?.values() ?? [])],
     }),
 
-    getCDPEndpoint: () => ({
-      webSocketDebuggerUrl: cdp.webSocketDebuggerUrl,
-      httpEndpoint: cdp.httpEndpoint,
-    }),
+    // Raw CDP tunnel: params IS one raw CDP message object
+    // { id?, method, params?, sessionId? }. Acknowledged immediately; CDP
+    // responses and events are pushed on the same connection as
+    // { event: "cdp", message } lines. The virtual client is opened lazily on
+    // the first cdpMessage and closed when the socket closes.
+    cdpMessage: (params, socket) => {
+      if (typeof params.method !== 'string' || !params.method) throw bad('cdpMessage requires a CDP method string');
+      if (params.id !== undefined && (typeof params.id !== 'number' || !Number.isInteger(params.id))) {
+        throw bad('cdpMessage id must be an integer');
+      }
+      if (params.sessionId !== undefined && typeof params.sessionId !== 'string') {
+        throw bad('cdpMessage sessionId must be a string');
+      }
+      if (params.params !== undefined && (typeof params.params !== 'object' || params.params === null || Array.isArray(params.params))) {
+        throw bad('cdpMessage params.params must be an object');
+      }
+      if (!cdpServer) throw err('WEGO_CDP_CHANNEL_UNAVAILABLE', 'CDP channel unavailable');
+      const client = cdpClientFor(socket);
+      // Fire-and-forget: responses/events flow back through client pushes.
+      void client.handleMessage({
+        method: params.method,
+        ...(params.id !== undefined ? { id: params.id } : {}),
+        ...(params.params !== undefined ? { params: params.params } : {}),
+        ...(params.sessionId !== undefined ? { sessionId: params.sessionId } : {}),
+      });
+      return { accepted: true };
+    },
 
     // Clipboard paste with restore (ego parity: native paste, then the user's
     // previous clipboard contents are put back). Browser-side because CDP
@@ -295,7 +321,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         ? space.tabs.find((t) => t.targetId === targetId)
         : space.tabs.find((t) => t.targetId === space.activeTargetId);
       const wc = tab?.view?.webContents;
-      if (!wc || wc.isDestroyed()) throw err('WEGO_WEB_CONTENTS_UNAVAILABLE', 'Web contents unavailable');
+      if (!wc || wc.isDestroyed()) throw bad(`Unknown or destroyed tab: ${targetId ?? `space ${id} has no active tab`}`);
       if (!clipboard) throw err('WEGO_OPERATION_FAILED', 'clipboard unavailable');
       const prev = { text: clipboard.readText(), html: clipboard.readHTML() };
       clipboard.write({
@@ -324,9 +350,24 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       if (process.env.WEGO_DEBUG_PASTE) {
         console.error(`[paste-debug] landed=${landed} elapsed=${Date.now() - t0}ms before=${JSON.stringify(beforeValue)}`);
       }
+      if (!landed) throw err('WEGO_OPERATION_FAILED', 'paste did not reach the page');
       return `${id} pasted.`;
     },
   };
+
+  // One virtual CDP client per bridge connection, opened lazily by the
+  // first cdpMessage; CDP responses/events push only to that connection.
+  const cdpClients = new Map(); // socket -> VirtualCdpServer client
+  function cdpClientFor(socket) {
+    let client = cdpClients.get(socket);
+    if (!client) {
+      client = cdpServer.openClient((message) => {
+        try { socket.write(`${JSON.stringify({ event: 'cdp', message })}\n`); } catch { /* socket gone */ }
+      });
+      cdpClients.set(socket, client);
+    }
+    return client;
+  }
 
   async function handleLine(socket, line) {
     let msg;
@@ -342,7 +383,7 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
       if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
         throw bad('params must be an object');
       }
-      const result = await dispatch[method](params ?? {});
+      const result = await dispatch[method](params ?? {}, socket);
       socket.write(`${JSON.stringify({ id, result })}\n`);
     } catch (e) {
       socket.write(`${JSON.stringify({
@@ -365,7 +406,14 @@ export async function startBridgeServer({ spaces, windowApi, cdp }) {
         if (line.trim()) void handleLine(socket, line);
       }
     });
-    const drop = () => clients.delete(socket);
+    const drop = () => {
+      clients.delete(socket);
+      const client = cdpClients.get(socket);
+      if (client) {
+        cdpClients.delete(socket);
+        void client.close();
+      }
+    };
     socket.on('close', drop);
     socket.on('error', drop);
   });

@@ -325,6 +325,10 @@ await runSiteTool("mail.qq.com", "compose", { page, to, subject, body });
 await runSiteBrowserTool(page, "mail.qq.com", "readCompose");
 ```
 
+Trust model: tools under `~/.wego/learnings/` are arbitrary executable code
+that persists across sessions. Only run tools from learnings you (or a
+session you trust) wrote; review unknown `tools/*.mjs` before first use.
+
 When a task on a site required non-obvious workarounds (custom widgets,
 shadow DOM traps, anti-automation quirks), record what worked AND what failed
 (a "失败路径" section) as a new note under that site's `notes/` plus an entry

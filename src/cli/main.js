@@ -42,21 +42,27 @@ function bridgeRequest(method, params = {}, timeoutMs = 5000) {
     sock.once('error', fail);
     sock.on('data', (chunk) => {
       buf += chunk;
-      const nl = buf.indexOf('\n');
-      if (nl === -1) return;
-      let msg;
-      try {
-        msg = JSON.parse(buf.slice(0, nl));
-      } catch {
-        return fail(new Error(`bridge ${method}: invalid response`));
+      // skip push events and other frames; only our response (id 1) resolves
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue; // unframed garbage; bridge drops it too
+        }
+        if (msg.id !== 1) continue; // debounced push (e.g. spaceChanged)
+        if (msg.error) {
+          const err = new Error(msg.error.message || `bridge ${method} failed`);
+          err.error_code = msg.error.error_code;
+          return fail(err);
+        }
+        sock.destroy();
+        resolve(msg.result);
+        return;
       }
-      if (msg.error) {
-        const err = new Error(msg.error.message || `bridge ${method} failed`);
-        err.error_code = msg.error.error_code;
-        return fail(err);
-      }
-      sock.destroy();
-      resolve(msg.result);
     });
     sock.on('connect', () => {
       sock.write(JSON.stringify({ id: 1, method, params }) + '\n');
@@ -80,7 +86,7 @@ async function ensureBrowser() {
     await new Promise((r) => setTimeout(r, 250));
     if (await probeSocket(socketPath())) return;
   }
-  console.error('failed to start ego lite browser');
+  console.error('failed to start the wego browser');
   process.exit(1);
 }
 
@@ -90,14 +96,14 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-const USAGE = `wego-browser ${VERSION} — drive the ego lite browser on Linux
+const USAGE = `wego-browser ${VERSION} — drive the wego agent browser on Linux
 
 Usage: wego-browser <command>
 
 Commands:
   nodejs      Run a browser automation script (stdin or -e '<code>')
   skill       Print the wego-browser agent skill guide
-  launch      Start the ego lite browser and wait until ready
+  launch      Start the wego browser and wait until ready
   profiles    List profiles; 'profiles create <name>' adds one
   version     Print the CLI version
   doctor      Check the local environment
@@ -115,7 +121,7 @@ Environment:
 
 const NODEJS_USAGE = `Usage: wego-browser nodejs [-e '<code>'] [--sdk-path <dir>]
 
-Reads JavaScript from stdin (or -e) and runs it against the ego lite browser,
+Reads JavaScript from stdin (or -e) and runs it against the wego browser,
 starting the browser first when it is not running.
 `;
 
@@ -175,7 +181,7 @@ function cmdSkill(args) {
 async function cmdLaunch() {
   await ensureBrowser();
   await bridgeRequest('ping');
-  console.log('ego lite browser is running');
+  console.log('wego browser is running');
   return 0;
 }
 

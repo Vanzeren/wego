@@ -41,15 +41,9 @@ function cleanOptions(options) {
 
 let cdp = null;
 
-// Called once by the bridge at startup with the browser-level CDP endpoint.
-export function configureSnapshot({ webSocketDebuggerUrl } = {}) {
-  cdp = webSocketDebuggerUrl ? new MainCdpClient(webSocketDebuggerUrl) : null;
-}
-
-// Shared browser-level CDP client for main-process users (snapshot engine,
-// view priming probes). Null until configureSnapshot runs.
-export function getMainCdp() {
-  return cdp;
+// Called once by the bridge at startup with the in-process VirtualCdpServer.
+export function configureSnapshot({ cdpServer } = {}) {
+  cdp = cdpServer ? new MainCdpClient(cdpServer) : null;
 }
 
 // Ref ranges: the top document owns 1..REF_BLOCK-1, each OOPIF capture gets
@@ -99,7 +93,6 @@ function normUrl(u) {
 async function mergeRemoteFrames(capture, frames, options, pageSession, state) {
   const pending = (frames ?? []).filter((f) => !f.descended && f.src);
   for (const frame of pending) {
-    if (state.blocksUsed >= 8) return; // safety cap on merged frames
     const target = state.frameTargets.find(
       (t) => !state.consumed.has(t.targetId) && normUrl(t.url) === normUrl(frame.src),
     );
@@ -117,7 +110,16 @@ async function mergeRemoteFrames(capture, frames, options, pageSession, state) {
     }
     state.consumed.add(target.targetId);
     let sub = null;
-    const refBase = ++state.blocksUsed * REF_BLOCK;
+    // Persistent per-frame ref block: keyed on the frame's targetId, not
+    // traversal order, so the same frame always lands in the same block and
+    // distinct frames never collide.
+    let block = state.frameBlocks.get(target.targetId);
+    if (block === undefined) {
+      if (state.frameBlocks.size >= 8) return; // safety cap on merged frames
+      block = state.frameBlocks.size + 1;
+      state.frameBlocks.set(target.targetId, block);
+    }
+    const refBase = block * REF_BLOCK;
     try {
       const session = await cdp.attach(target.targetId);
       try {
@@ -179,30 +181,37 @@ export async function captureSnapshot(webContents, options = {}, context = {}) {
   const raw = await topCapture(webContents, options);
 
   if (cdp && raw.frames?.some((f) => !f.descended && f.src)) {
+    let frameTargets = [];
     try {
-      const state = {
-        frameTargets: (await cdp.getTargets()).filter((t) => t.type === 'iframe'),
-        consumed: new Set(),
-        blocksUsed: 0,
-      };
-      if (state.frameTargets.length) {
-        // Page session only for DOM.getFrameOwner ownership checks; cached
-        // across snapshots instead of attach/detach per call.
-        let pageSession = null;
-        if (context.targetId) {
-          try {
-            pageSession = await cdp.attachCached(context.targetId);
-            await pageSession.send('DOM.enable').catch(() => {
-              cdp._sessions.delete(context.targetId); // stale session
-              pageSession = null;
-            });
-          } catch { pageSession = null; }
-        }
-        // pageSession may be null: mergeRemoteFrames then skips the
-        // ownership check (same fallback as before).
-        await mergeRemoteFrames(raw, raw.frames, options, pageSession, state);
-      }
+      frameTargets = (await cdp.getTargets()).filter((t) => t.type === 'iframe');
     } catch { /* CDP unavailable: return the unmerged top capture */ }
+    if (frameTargets.length) {
+      const state = { frameTargets, consumed: new Set(), frameBlocks: new Map() };
+      // Page session only for DOM.getFrameOwner ownership checks; cached
+      // across snapshots instead of attach/detach per call.
+      let pageSession = null;
+      if (context.targetId) {
+        try {
+          pageSession = await cdp.attachCached(context.targetId);
+          await pageSession.send('DOM.enable').catch(() => {
+            cdp._sessions.delete(context.targetId); // stale session
+            pageSession = null;
+          });
+        } catch { pageSession = null; }
+      }
+      // Fail closed: without the page session the frame-ownership check
+      // cannot run, and frames from OTHER pages could merge into this
+      // snapshot — refuse instead of returning a cross-page capture.
+      if (!pageSession) {
+        throw egoError(
+          'WEGO_CDP_CHANNEL_UNAVAILABLE',
+          'Snapshot failed: page CDP session unavailable for OOPIF ownership checks',
+        );
+      }
+      try {
+        await mergeRemoteFrames(raw, raw.frames, options, pageSession, state);
+      } catch { /* frame merge raced teardown: return the unmerged top capture */ }
+    }
   }
 
   let content = truncate(raw.content, options);

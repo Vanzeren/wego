@@ -3,8 +3,9 @@
 The bridge is wego's native layer (originally modeled on ego-lite's
 closed-source bridge).
 The Electron main process exposes it over a Unix domain socket; the
-`wego-browser` CLI client (`src/client/ego.js`) consumes it and presents the
-`globalThis.ego` surface documented in `docs/native-api.md`.
+`wego-browser` CLI client (`src/client/wego.js`) consumes it and presents the
+`globalThis.ego` surface; the agent-facing API is documented in
+`skill-body/SKILL.md`.
 
 ## Transport
 
@@ -33,10 +34,7 @@ All task-space methods take the numeric space `id` explicitly in `params`.
 ### Meta
 
 - `ping()` → `"pong"`
-- `getBrowserVersion()` → `{ currentVersion: string, updateAvailable: false, cdpEndpoint: string }`
-  - `cdpEndpoint`: WebSocket URL of the Chromium browser-level CDP endpoint
-    (e.g. `ws://127.0.0.1:PORT/devtools/browser/<id>`). Raw CDP and SDK
-    sessions go directly over this endpoint, not through the bridge.
+- `getBrowserVersion()` → `{ currentVersion: string, updateAvailable: false }`
 - `listProfiles()` → `{ profiles: [{ id, name, isDefault }] }`
   - `Default` always exists and maps to the shared `persist:default` session
     partition (logins carry over between all Default-profile spaces). Extra
@@ -102,7 +100,8 @@ Tab mutation while `control === "user"` fails with
     (100000+) so they never collide with top-document refs. Ref resolution
     for `frameId` refs happens on a session attached to that frame target.
   - Rejects with `WEGO_SNAPSHOT_FAILED` / `WEGO_TASK_SPACE_USER_IN_CONTROL` /
-    `WEGO_WEB_CONTENTS_UNAVAILABLE`.
+    `WEGO_INVALID_ARGUMENT` (unknown or destroyed `targetId`) /
+    `WEGO_WEB_CONTENTS_UNAVAILABLE` (contents destroyed mid-capture).
 
 ### Zoom
 
@@ -119,20 +118,47 @@ Tab mutation while `control === "user"` fails with
   - Writes the clipboard, performs a native paste at the current focus of the
     addressed tab (active tab by default), then restores the user's previous
     clipboard. One of `text`/`html` is required. Gated by user control.
+  - Rejects with `WEGO_INVALID_ARGUMENT` for an unknown or destroyed
+    `targetId`, and with `WEGO_OPERATION_FAILED` (`paste did not reach the
+    page`) when the paste never lands in the page within the 400ms delivery
+    window (clipboard is still restored).
 
 ### CDP
 
-- `getCDPEndpoint()` → `{ webSocketDebuggerUrl, httpEndpoint }`
+- `cdpMessage(message)` → `{ accepted: true }`
+  - `message` is one raw CDP message object: `{ id?, method, params?, sessionId? }`
+    (`id` integer, `method` non-empty string, `sessionId` string; violations
+    are `WEGO_INVALID_ARGUMENT`).
+  - The bridge acknowledges immediately. CDP responses and events are pushed
+    back on the same connection as `{ event: "cdp", message }` lines, in the
+    exact shape the Chromium DevTools WebSocket would have delivered:
+    `{ id, result, sessionId? }` | `{ id, error, sessionId? }` |
+    `{ method, params, sessionId? }`.
 
-Raw CDP does NOT flow over the socket. The client connects to
-`webSocketDebuggerUrl` and uses flatten sessions
-(`Target.attachToTarget {flatten:true}`). User-control gating for raw CDP is
-enforced client-side by `src/client/ego.js` via bridge state.
+Raw CDP tunnels over the authenticated bridge socket — there is NO TCP debug
+endpoint. Each bridge connection gets one virtual browser-level session on
+the first `cdpMessage` (flatten sessions: `Target.attachToTarget
+{ flatten:true }`; `flatten:false` is rejected). Emulated browser-level
+methods: `Target.getTargets` (task-space tabs plus their OOPIF `iframe`
+targets), `Target.setDiscoverTargets` (drives `targetCreated` /
+`targetInfoChanged` / `targetDestroyed` pushes), `Target.attachToTarget`,
+`Target.detachFromTarget`, `Browser.getVersion`. All other domains run on
+virtual page/frame sessions backed by the tab's in-process
+`webContents.debugger` (`src/browser/cdp-server.js`). When a tab's debugger
+drops (renderer crash), the server synthesizes `Target.detachedFromTarget`
+for every virtual session on that tab. User-control gating for raw CDP is
+enforced client-side by `src/client/wego.js` via bridge state.
+
+Dev escape hatch: `WEGO_DEBUG_PORT=<port>` at launch re-enables Chromium's
+UNAUTHENTICATED DevTools TCP server on 127.0.0.1 — local debugging only,
+never on shared machines.
 
 ## Server-push events
 
 - `{ event: "spaceChanged", spaceId }` — ownership/control/tab-list/title changed.
 - `{ event: "taskState", spaceId, state }` — agent progress text changed.
+- `{ event: "cdp", message }` — CDP response/event for this connection's
+  virtual CDP session (see the CDP section).
 
 Clients may ignore pushes; all state is re-readable via methods.
 

@@ -1,7 +1,7 @@
 // NDJSON client for the wego bridge (docs/protocol.md).
 // Presents the native `globalThis.ego` surface: request/response by id,
-// server-push events via ego.onEvent, local task-space selection, and a
-// lazily-opened raw CDP WebSocket channel.
+// server-push events via ego.onEvent, local task-space selection, and the
+// raw CDP tunnel (cdpMessage / { event: "cdp" } pushes).
 
 import net from 'node:net';
 import os from 'node:os';
@@ -61,6 +61,11 @@ export async function connectWego({ socketPath } = {}) {
           p.reject(localError(msg.error.message, msg.error.error_code));
         } else {
           p.resolve(msg.result);
+        }
+      } else if (msg.event === 'cdp') {
+        // Raw CDP tunnel: responses and events for ego.sendCDPMessage.
+        if (typeof ego.onCDPMessage === 'function') {
+          try { ego.onCDPMessage(JSON.stringify(msg.message)); } catch { /* user handler */ }
         }
       } else if (msg.event) {
         if (msg.event === 'spaceChanged') controlCacheDirty = true;
@@ -125,33 +130,6 @@ export async function connectWego({ socketPath } = {}) {
     return selectedSpaceId;
   }
 
-  // ---- CDP raw channel ----
-  let cdpWs = null;
-  let cdpWsOpening = null;
-
-  async function ensureCDPWs() {
-    if (cdpWs && cdpWs.readyState === WebSocket.OPEN) return cdpWs;
-    if (cdpWsOpening) return cdpWsOpening;
-    cdpWsOpening = (async () => {
-      const { webSocketDebuggerUrl } = await call('getCDPEndpoint');
-      const ws = new WebSocket(webSocketDebuggerUrl);
-      await new Promise((resolve, reject) => {
-        ws.onopen = resolve;
-        ws.onerror = () => reject(localError('CDP WebSocket connect failed', 'WEGO_CDP_CHANNEL_UNAVAILABLE'));
-      });
-      ws.onmessage = (ev) => {
-        if (typeof ego.onCDPMessage === 'function') {
-          try { ego.onCDPMessage(String(ev.data)); } catch { /* user handler */ }
-        }
-      };
-      ws.onclose = () => { if (cdpWs === ws) cdpWs = null; };
-      cdpWs = ws;
-      cdpWsOpening = null;
-      return ws;
-    })();
-    return cdpWsOpening;
-  }
-
   // ---- native-bindings surface ----
 
   ego.getBrowserVersion = () => call('getBrowserVersion');
@@ -170,9 +148,12 @@ export async function connectWego({ socketPath } = {}) {
   };
 
   ego.claimTaskSpace = (id, name) => {
+    // validation throws synchronously (tests + agent sanity); the cache
+    // update rides the async tail so it lands after the bridge confirms.
     if (typeof id !== 'number' || !Number.isInteger(id)) throw invalidArg('claimTaskSpace(id) requires an integer id');
     if (name !== undefined && typeof name !== 'string') throw invalidArg('claimTaskSpace name must be a string');
-    return call('claimTaskSpace', { id, ...(name !== undefined ? { name } : {}) });
+    return call('claimTaskSpace', { id, ...(name !== undefined ? { name } : {}) })
+      .then((r) => { controlCache.set(id, 'agent'); return r; });
   };
 
   ego.useTaskSpace = (id) => {
@@ -186,7 +167,9 @@ export async function connectWego({ socketPath } = {}) {
     if (id === null) return NOT_SELECTED;
     const gated = await gate(id);
     if (gated) return gated;
-    return call('closeTaskSpace', { id });
+    const r = await call('closeTaskSpace', { id });
+    controlCache.delete(id);
+    return r;
   };
 
   ego.completeTaskSpace = async () => {
@@ -194,19 +177,25 @@ export async function connectWego({ socketPath } = {}) {
     if (id === null) return NOT_SELECTED;
     const gated = await gate(id);
     if (gated) return gated;
-    return call('completeTaskSpace', { id });
+    const r = await call('completeTaskSpace', { id });
+    controlCache.delete(id);
+    return r;
   };
 
-  ego.handOffTaskSpace = () => {
+  ego.handOffTaskSpace = async () => {
     const id = requireSelected();
     if (id === null) return NOT_SELECTED;
-    return call('handOffTaskSpace', { id });
+    const r = await call('handOffTaskSpace', { id });
+    controlCache.set(id, 'user'); // don't wait for the debounced spaceChanged push
+    return r;
   };
 
-  ego.takeOverTaskSpace = () => {
+  ego.takeOverTaskSpace = async () => {
     const id = requireSelected();
     if (id === null) return NOT_SELECTED;
-    return call('takeOverTaskSpace', { id });
+    const r = await call('takeOverTaskSpace', { id });
+    controlCache.set(id, 'agent'); // don't wait for the debounced spaceChanged push
+    return r;
   };
 
   ego.setAgentTaskState = async (state) => {
@@ -266,30 +255,28 @@ export async function connectWego({ socketPath } = {}) {
     if (selectedSpaceId === null) return fail('Task space not selected', 'WEGO_TASK_SPACE_NOT_SELECTED');
     const control = await controlFor(selectedSpaceId);
     if (control === 'user') return fail('Task space is under user control', 'WEGO_TASK_SPACE_USER_IN_CONTROL');
-    let ws;
+    let message;
     try {
-      ws = await ensureCDPWs();
+      message = JSON.parse(jsonString);
     } catch {
-      return fail('CDP channel unavailable', 'WEGO_CDP_CHANNEL_UNAVAILABLE');
+      return fail('sendCDPMessage: invalid JSON', 'WEGO_INVALID_ARGUMENT');
     }
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return fail('CDP channel unavailable', 'WEGO_CDP_CHANNEL_UNAVAILABLE');
+    // Fire-and-forget tunnel: CDP responses/events come back as
+    // { event: "cdp" } pushes routed to ego.onCDPMessage.
+    try {
+      await call('cdpMessage', message);
+    } catch (e) {
+      return fail(e?.message || 'CDP channel unavailable', e?.error_code || 'WEGO_CDP_CHANNEL_UNAVAILABLE');
     }
-    ws.send(jsonString);
   };
 
-  ego.getCDPEndpoint = () => call('getCDPEndpoint');
-
   ego.close = () => {
-    try { if (cdpWs) cdpWs.close(); } catch { /* ignore */ }
-    cdpWs = null;
     try { sock.destroy(); } catch { /* ignore */ }
   };
 
   // expose internals for the runtime layer
   ego._call = call;
   ego._getSelectedSpaceId = () => selectedSpaceId;
-  ego._ensureCDPWs = ensureCDPWs;
 
   return ego;
 }

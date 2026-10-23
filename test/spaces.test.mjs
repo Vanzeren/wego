@@ -219,7 +219,7 @@ test('restoreState rejects corrupt data and activeTabIndex is honored', () => {
   assert.equal(restored.activeTargetId, restored.tabs[1].targetId);
 });
 
-test('moveTab reorders within the space, clamps, keeps active tab', () => {
+test('moveUserTab reorders within the space, clamps, keeps active tab', () => {
   const sm = makeManager();
   const t = sm.createTaskSpace({ name: 'order' });
   sm.createTab(t.id, 'http://a/');
@@ -227,22 +227,22 @@ test('moveTab reorders within the space, clamps, keeps active tab', () => {
   const space = sm.getSpace(t.id);
   const urls = () => space.tabs.map((x) => x.url);
   assert.deepEqual(urls(), ['about:blank', 'http://a/', 'http://b/']);
-  sm.moveTab(t.id, space.tabs[2].targetId, 0);
+  sm.moveUserTab(t.id, space.tabs[2].targetId, 0);
   assert.deepEqual(urls(), ['http://b/', 'about:blank', 'http://a/']);
   // clamp beyond both ends
-  sm.moveTab(t.id, space.tabs[0].targetId, 99);
+  sm.moveUserTab(t.id, space.tabs[0].targetId, 99);
   assert.deepEqual(urls(), ['about:blank', 'http://a/', 'http://b/']);
-  sm.moveTab(t.id, space.tabs[2].targetId, -5);
+  sm.moveUserTab(t.id, space.tabs[2].targetId, -5);
   assert.deepEqual(urls(), ['http://b/', 'about:blank', 'http://a/']);
   // active follows the tab object, not the slot
   sm.activateTab(t.id, space.tabs[0].targetId);
-  sm.moveTab(t.id, space.tabs[0].targetId, 2);
+  sm.moveUserTab(t.id, space.tabs[0].targetId, 2);
   assert.equal(space.activeTargetId, space.tabs[2].targetId);
-  assert.throws(() => sm.moveTab(t.id, 'nope', 0), /Tab not found/);
-  assert.throws(() => sm.moveTab(t.id, space.tabs[0].targetId, 1.5), /toIndex/);
-  // gated like other tab mutations
+  assert.throws(() => sm.moveUserTab(t.id, 'nope', 0), /Tab not found/);
+  assert.throws(() => sm.moveUserTab(t.id, space.tabs[0].targetId, 1.5), /toIndex/);
+  // not gated by agent control (user gesture path)
   sm.handOffTaskSpace({ id: t.id });
-  assert.throws(() => sm.moveTab(t.id, space.tabs[0].targetId, 0), /user control/);
+  assert.doesNotThrow(() => sm.moveUserTab(t.id, space.tabs[0].targetId, 0));
 });
 
 test('createUserSpace: named/default naming, blank tab, becomes active', () => {
@@ -269,6 +269,35 @@ test('closing the last tab of a space opens a blank tab (never zero tabs)', () =
   sm.closeUserTab(t.id, space.tabs[0].targetId);
   assert.equal(space.tabs.length, 1);
   assert.equal(space.tabs[0].url, 'about:blank');
+});
+
+test('closeTaskSpace on the last space auto-creates a fresh Personal space', () => {
+  const sm = makeManager();
+  const t = sm.createTaskSpace({ name: 'only-space' });
+  sm.closeTaskSpace({ id: t.id });
+  const all = sm.allSpaces();
+  assert.equal(all.length, 1);
+  assert.equal(all[0].name, 'Personal');
+  assert.equal(all[0].ownership, 'user');
+  assert.equal(all[0].control, 'user');
+  assert.equal(all[0].tabs.length, 1);
+  assert.equal(sm.getActive().id, all[0].id);
+});
+
+test('whenTabsReady throws WEGO_OPERATION_FAILED when a tab keeps its placeholder id', async () => {
+  const sm = makeManager();
+  const t = sm.createTaskSpace({ name: 'pending' });
+  const tab = sm.getSpace(t.id).tabs[0];
+  tab.targetIdReady = Promise.reject(new Error('marker load aborted'));
+  tab.targetIdReady.catch(() => {});
+  await assert.rejects(
+    () => sm.whenTabsReady(t.id),
+    (e) => e.error_code === 'WEGO_OPERATION_FAILED' && e.message.includes(tab.targetId),
+  );
+  // resolved markers pass through cleanly
+  tab.targetIdReady = Promise.resolve('CDP-1');
+  sm.noteTargetId(t.id, tab.targetId, 'CDP-1');
+  await sm.whenTabsReady(t.id);
 });
 
 test('closeTaskSpace bypasses the auto-replacement (space fully destroyed)', () => {

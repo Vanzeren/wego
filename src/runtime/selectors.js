@@ -12,40 +12,14 @@
 // it pierces open shadow roots, top document first, then same-origin iframes.
 
 import { ElementResolutionError, parseRefTarget, resolve as resolveRef } from './refs.js';
+import { computeRoleSource } from '../shared/roles.js';
 
-const RESOLVER_FN = String.raw`function __egoResolve(sel) {
+const RESOLVER_FN = String.raw`function __wegoResolve(sel) {
   const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
-  // --- compact role computation (mirrors snapshot engine rules) ---
-  const TAG_ROLES = {
-    a: (el) => (el.hasAttribute('href') ? 'link' : null),
-    button: () => 'button',
-    input: (el) => {
-      const t = (el.getAttribute('type') || 'text').toLowerCase();
-      if (t === 'button' || t === 'submit' || t === 'reset') return 'button';
-      if (t === 'checkbox') return 'checkbox';
-      if (t === 'radio') return 'radio';
-      if (t === 'range') return 'slider';
-      return 'textbox';
-    },
-    select: () => 'combobox',
-    textarea: () => 'textbox',
-    img: () => 'img',
-    h1: () => 'heading', h2: () => 'heading', h3: () => 'heading',
-    h4: () => 'heading', h5: () => 'heading', h6: () => 'heading',
-    ul: () => 'list', ol: () => 'list', li: () => 'listitem',
-    table: () => 'table', tr: () => 'row', td: () => 'cell', th: () => 'columnheader',
-    nav: () => 'navigation', main: () => 'main', header: () => 'banner',
-    footer: () => 'contentinfo', aside: () => 'complementary',
-    form: () => 'form', dialog: () => 'dialog', option: () => 'option',
-    progress: () => 'progressbar', summary: () => 'button',
-  };
-  function roleOf(el) {
-    const explicit = el.getAttribute && el.getAttribute('role');
-    if (explicit) return explicit.split(/\s+/)[0];
-    const fn = TAG_ROLES[el.tagName ? el.tagName.toLowerCase() : ''];
-    return fn ? fn(el) : null;
-  }
+  // Canonical role mapping embedded from src/shared/roles.js — must match the
+  // snapshot engine byte-for-byte so snapshot-emitted loc=role: locators resolve.
+  const roleOf = ${computeRoleSource};
   function nameOf(el) {
     const labelledby = el.getAttribute('aria-labelledby');
     if (labelledby) {
@@ -242,3 +216,6 @@ export async function resolveTarget(page, target, { checkActionable = false } = 
   }
   return { objectId: obj.result.objectId, session };
 }
+
+// Test-only handle on the injected resolver source (see test/selectors.test.mjs).
+export const __testing = { RESOLVER_FN };

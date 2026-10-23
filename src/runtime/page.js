@@ -22,21 +22,28 @@ function timeoutError(what, ms) {
 }
 
 function poll(fn, { interval = 100 } = {}) {
-  return new Promise((resolve) => {
+  let cancelled = false;
+  const promise = new Promise((resolve) => {
     const tick = async () => {
+      if (cancelled) return;
       let v;
       try { v = await fn(); } catch { v = undefined; }
+      if (cancelled) return;
       if (v) return resolve(v);
       setTimeout(tick, interval);
     };
     tick();
   });
+  promise.cancel = () => { cancelled = true; };
+  return promise;
 }
 
 function withTimeout(promise, ms, what) {
   let timer;
   const t = new Promise((_, reject) => { timer = setTimeout(() => reject(timeoutError(what, ms)), ms); });
-  return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+  // cancel-aware: a timed-out poll/loop must stop rescheduling, not leak a
+  // 100ms CDP spam loop for the process lifetime.
+  return Promise.race([promise, t]).finally(() => { clearTimeout(timer); promise.cancel?.(); });
 }
 
 // getContentQuads returns one quad per inline box fragment — the first can be
@@ -174,8 +181,17 @@ export class Page {
         }
         return session;
       })();
+      // a failed attach/setup must not brick the Page for its lifetime:
+      // the next _session() call retries from scratch.
+      this._sessionPromise.catch(() => { this._sessionPromise = null; });
     }
-    return this._sessionPromise;
+    const session = await this._sessionPromise;
+    if (session.detached) {
+      // renderer crash / target swap: drop the cached session and re-attach
+      this._sessionPromise = null;
+      return this._session();
+    }
+    return session;
   }
 
   _recordEvent(method, params) {
@@ -331,16 +347,20 @@ export class Page {
       const ego = this._ctx().ego;
       const listDownloads = async () =>
         (await ego._call('downloads').catch(() => ({ downloads: [] }))).downloads ?? [];
-      const known = new Map((await listDownloads()).map((d) => [d.url, d.savePath]));
-      return withTimeout((async () => {
+      const known = new Map((await listDownloads()).map((d) => [d.id ?? d.url, d.savePath]));
+      let cancelled = false;
+      const loop = (async () => {
         for (;;) {
+          if (cancelled) return undefined; // withTimeout fired; stop polling
           for (const d of await listDownloads()) {
-            const knownPath = known.get(d.url);
+            const key = d.id ?? d.url;
+            const knownPath = known.get(key);
             const isNew = knownPath === undefined;
             const restarted = knownPath !== undefined && knownPath !== d.savePath && d.state === 'progressing';
             if (isNew || restarted) {
-              known.set(d.url, d.savePath);
+              known.set(key, d.savePath);
               const dl = new Download(this, null, d.url, d.filename);
+              dl._id = d.id ?? null;
               dl._path = d.savePath;
               // resolve done when the registry entry settles
               (async () => {
@@ -355,7 +375,9 @@ export class Page {
           }
           await new Promise((r) => setTimeout(r, 150));
         }
-      })(), timeout, "waitForEvent('download')");
+      })();
+      loop.cancel = () => { cancelled = true; };
+      return withTimeout(loop, timeout, "waitForEvent('download')");
     }
     throw Object.assign(new TypeError(`waitForEvent: unknown event ${name}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
   }
@@ -629,7 +651,7 @@ export class Page {
         this.dispatchEvent(new Event('change', { bubbles: true }));
         return { picked };
       }`,
-      arguments: [{ value: list.map((v) => (typeof v === 'string' ? v : v)) }],
+      arguments: [{ value: list }],
       returnByValue: true,
     });
     if (result.value?.error) throw new CDPError(`selectOption: option not found in ${target}`, 'WEGO_OPERATION_FAILED');
@@ -643,8 +665,7 @@ export class Page {
   }
 
   async press(target, key) {
-    if (key === undefined) { key = target; target = null; } // press(key) convenience? keep strict: (target,key)
-    if (target == null) throw Object.assign(new TypeError('press(target, key) requires a target'), { error_code: 'WEGO_INVALID_ARGUMENT' });
+    if (target == null || key === undefined) throw Object.assign(new TypeError('press(target, key) requires target and key'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     await session.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function(){ this.focus(); }' });
     await pressKey(session, key);
@@ -744,7 +765,7 @@ export class Page {
     if (outPath !== undefined && !path.isAbsolute(outPath)) {
       throw Object.assign(new TypeError('screenshot path must be absolute'), { error_code: 'WEGO_INVALID_ARGUMENT' });
     }
-    const finalPath = outPath || path.join(os.tmpdir(), `ego-shot-${crypto.randomBytes(6).toString('hex')}.png`);
+    const finalPath = outPath || path.join(os.tmpdir(), `wego-shot-${crypto.randomBytes(6).toString('hex')}.png`);
     await fs.promises.mkdir(path.dirname(finalPath), { recursive: true });
     const { data } = await session.send('Page.captureScreenshot', { format: 'png' });
     await fs.promises.writeFile(finalPath, Buffer.from(data, 'base64'));
@@ -755,6 +776,8 @@ export class Page {
     const ego = this._ctx().ego;
     ego.useTaskSpace(this.spaceId);
     await ego._call('closeTab', { id: this.spaceId, targetId: this.targetId });
+    this._popupWatch?.(); // drop the shared browser-session listener
+    this._popupWatch = null;
     this.space._removePage(this.label);
   }
 

@@ -17,9 +17,9 @@ Built on Electron 38 (Chromium) + Node.js. Zero npm dependencies.
 │  SpaceManager ─ spaces, ownership, user/agent control      │
 │  Bridge server ─ NDJSON JSON-RPC over Unix socket          │
 │  Snapshot engine ─ in-page accessibility tree + refs       │
-└───────▲───────────────────────────────▲──────────────────┘
-        │ ~/.wego/bridge.sock        │ ws://127.0.0.1 (CDP)
-┌───────┴────────┐               ┌───────┴────────┐
+└───────▲───────────────────────────────────────────────────┘
+        │ ~/.wego/bridge.sock (CDP tunneled as cdpMessage/cdp)
+┌───────┴────────┐               ┌────────────────┐
 │ wego-browser CLI │               │ CDP sessions   │
 │ nodejs / skill  │──────────────▶│ (flatten)      │
 │ src/client/wego│  wego bindings│ src/runtime    │
@@ -107,8 +107,9 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
   OOPIF-in-OOPIF ownership checks are best-effort.
 - Chrome import covers cookies (not extensions/bookmarks/history) and reads
   the `Default` Chrome profile.
-- The remote-debugging endpoint is bound to 127.0.0.1 without auth; the bridge
-  socket is `0600`. Do not expose either on shared machines.
+- There is no TCP debug endpoint: raw CDP tunnels over the `0600` bridge
+  socket. `WEGO_DEBUG_PORT` re-enables Chromium's unauthenticated 127.0.0.1
+  DevTools server for local development — never set it on shared machines.
 
 ## Layout
 
@@ -116,7 +117,7 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 src/browser/   Electron main: window.js (orchestrator), views.js (tab views),
                findbar.js (overlay), ipc.js (UI dispatch), persistence.js,
                spaces.js (state machine), bridge.js, snapshot/, chrome-import.js
-src/client/    wego bindings client (Unix socket + CDP WebSocket)
+src/client/    wego bindings client (Unix socket; raw CDP tunneled over it)
 src/runtime/   agent SDK: TaskSpace/Page, selectors, refs, input, CDP sessions,
                driver/ (Download/FileChooser, mouse/keyboard namespaces)
 src/cli/       wego-browser CLI (nodejs/skill/launch/doctor/profiles/...)

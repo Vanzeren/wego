@@ -43,13 +43,23 @@ test('decryptCookieValue passes through unencrypted values and rejects nothing',
   assert.equal(decryptCookieValue(Buffer.alloc(0), '.example.com', KEY), null);
 });
 
+test('decryptCookieValue keeps values ending in a padding-like byte', () => {
+  // Regression: decipher.final() already strips PKCS7 padding; a second manual
+  // unpad truncated values whose real last byte was 0x01-0x10.
+  const host = '.example.com';
+  const value = Buffer.from('AB\x08');
+  const payload = Buffer.concat([crypto.createHash('sha256').update(host).digest(), value]);
+  const blob = encryptCookieValue(payload, KEY);
+  assert.equal(decryptCookieValue(blob, host, KEY), 'AB\x08');
+});
+
 test('chromeTimeToUnix converts the 1601 epoch', () => {
   assert.equal(chromeTimeToUnix(11644473600 * 1_000_000), 0); // 1970-01-01
   assert.equal(chromeTimeToUnix((11644473600 + 3600) * 1_000_000), 3600);
 });
 
 function makeCookiesDb(rows) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ego-cookiedb-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wego-cookiedb-'));
   const file = path.join(dir, 'Cookies');
   const db = new DatabaseSync(file);
   db.exec(`CREATE TABLE cookies (
@@ -101,6 +111,24 @@ test('importChromeCookieDescriptors decrypts and shapes Electron cookies', async
   const plain = cookies.find((c) => c.name === 'p');
   assert.equal(plain.url, 'http://plain.com/');
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('importChromeCookieDescriptors stages the DB copy under stateDir and cleans up', async () => {
+  const host = '.example.com';
+  const payload = Buffer.concat([crypto.createHash('sha256').update(host).digest(), Buffer.from('tok')]);
+  const blob = encryptCookieValue(payload, KEY);
+  const { dir } = makeCookiesDb([[host, 'token', '', blob, '/', 0, 0, 0, 0]]);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wego-state-'));
+  try {
+    const { cookies, total } = await importChromeCookieDescriptors({ chromeDir: dir, password: 'peanuts', stateDir });
+    assert.equal(total, 1);
+    assert.equal(cookies[0].value, 'tok');
+    // The staged copy is removed afterwards; nothing lingers in the state dir.
+    assert.deepEqual(fs.readdirSync(stateDir), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 test('importChromeCookieDescriptors counts undecryptable rows with a wrong key', async () => {

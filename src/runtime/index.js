@@ -117,7 +117,10 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
       cliLog(notes);
       const tools = listSiteTools(host);
       if (tools && (tools.tools.length || tools.browserTools.length)) {
-        cliLog(`[wego-learn] executable tools for ${tools.site}: ` +
+        // Trust model: learnings are user-local executable code. A poisoned
+        // learning (e.g. written by a prompt-injected session) persists
+        // across sessions — say so every time tools are surfaced.
+        cliLog(`[wego-learn] executable tools for ${tools.site} (WARNING: these run arbitrary code; only use learnings you trust): ` +
           [tools.tools.map((n) => `runSiteTool("${tools.site}", "${n}", args)`),
            tools.browserTools.map((n) => `runSiteBrowserTool(page, "${tools.site}", "${n}", arg)`)].flat().join(' | '));
       }

@@ -9,6 +9,8 @@
 // document hits the SCRIPT_ID guard and keeps the existing registry, so refs
 // stay stable across captures within one document.
 
+import { computeRoleSource } from '../../shared/roles.js';
+
 function wegoSnapshotPageMain() {
   const SCRIPT_ID = 'wego-snapshot/1';
   const prev = globalThis.__wegoSnapshot;
@@ -27,10 +29,6 @@ function wegoSnapshotPageMain() {
   const ACTIONABLE_ROLES = new Set(['button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'listbox', 'option', 'slider', 'spinbutton', 'switch', 'tab', 'menuitem', 'treeitem']);
   // Roles whose accessible name may fall back to visible inner text.
   const NAME_FROM_CONTENT = new Set(['button', 'link', 'heading', 'option', 'tab', 'menuitem', 'treeitem', 'switch', 'checkbox', 'radio']);
-  const INPUT_TYPE_ROLE = {
-    button: 'button', submit: 'button', reset: 'button', image: 'button',
-    checkbox: 'checkbox', radio: 'radio', range: 'slider', number: 'spinbutton',
-  };
 
   // \s already covers NBSP and FEFF; add the zero-width family explicitly.
   const WS_RE = /[\s\u200b\u200c\u200d]+/g;
@@ -49,48 +47,11 @@ function wegoSnapshotPageMain() {
     return (doc && doc.defaultView) || window;
   }
 
-  function computeRole(el) {
-    const tag = el.tagName.toLowerCase();
-    const roleAttr = (el.getAttribute('role') || '').trim();
-    if (roleAttr) return roleAttr.split(/\s+/)[0].toLowerCase(); // explicit role wins
-    switch (tag) {
-      case 'a':
-      case 'area': return el.hasAttribute('href') ? 'link' : 'generic';
-      case 'button': return 'button';
-      case 'input': {
-        const t = (el.getAttribute('type') || 'text').toLowerCase();
-        return INPUT_TYPE_ROLE[t] || 'textbox';
-      }
-      case 'textarea': return 'textbox';
-      case 'select': {
-        const size = parseInt(el.getAttribute('size') || '0', 10);
-        return (el.multiple || size > 1) ? 'listbox' : 'combobox';
-      }
-      case 'option': return 'option';
-      case 'img':
-      case 'canvas':
-      case 'svg': return 'img';
-      case 'h1':
-      case 'h2':
-      case 'h3':
-      case 'h4':
-      case 'h5':
-      case 'h6': return 'heading';
-      case 'ul':
-      case 'ol': return 'list';
-      case 'li': return 'listitem';
-      case 'table': return 'table';
-      case 'tr': return 'row';
-      case 'td':
-      case 'th': return 'cell';
-      case 'nav': return 'navigation';
-      case 'main': return 'main';
-      case 'form': return 'form';
-      case 'dialog': return 'dialog';
-      case 'iframe': return 'iframe';
-      default: return 'generic';
-    }
-  }
+  // Canonical role table, substituted at module load from
+  // src/shared/roles.js (single source shared with the SDK locator resolver).
+  // The placeholder below is replaced by computeRole.toString() before this
+  // function is stringified for injection.
+  const computeRole = __WEGO_COMPUTE_ROLE__;
 
   function textOf(el) {
     let t = '';
@@ -489,5 +450,5 @@ function wegoSnapshotPageMain() {
   return api;
 }
 
-export const pageScriptSource = '(' + wegoSnapshotPageMain.toString() + ')()';
+export const pageScriptSource = '(' + wegoSnapshotPageMain.toString().replace('__WEGO_COMPUTE_ROLE__', computeRoleSource) + ')()';
 export default pageScriptSource;

@@ -19,21 +19,46 @@ export function createPersistence({ stateDir } = {}) {
   }
 
   let settingsTimer = null;
+  let pendingSettings = null;
   function saveSettings(settings) {
     if (!settingsFile) return;
+    pendingSettings = settings;
     clearTimeout(settingsTimer);
     settingsTimer = setTimeout(() => {
-      try { atomicWrite(settingsFile, JSON.stringify(settings)); } catch { /* not writable */ }
+      settingsTimer = null;
+      try { atomicWrite(settingsFile, JSON.stringify(pendingSettings)); } catch { /* not writable */ }
+      pendingSettings = null;
     }, 400);
   }
 
   let spacesTimer = null;
+  let pendingSpaces = null;
   function scheduleSpacesSave(spaces) {
     if (!spacesFile) return;
+    pendingSpaces = spaces;
     clearTimeout(spacesTimer);
     spacesTimer = setTimeout(() => {
-      try { atomicWrite(spacesFile, JSON.stringify(spaces.serializeState())); } catch { /* not writable */ }
+      spacesTimer = null;
+      try { atomicWrite(spacesFile, JSON.stringify(pendingSpaces.serializeState())); } catch { /* not writable */ }
+      pendingSpaces = null;
     }, 500);
+  }
+
+  // Immediately perform any pending debounced writes synchronously and cancel
+  // the timers. Called on app quit so the last edits are not lost.
+  function flush() {
+    clearTimeout(settingsTimer);
+    settingsTimer = null;
+    clearTimeout(spacesTimer);
+    spacesTimer = null;
+    if (settingsFile && pendingSettings) {
+      try { atomicWrite(settingsFile, JSON.stringify(pendingSettings)); } catch { /* not writable */ }
+      pendingSettings = null;
+    }
+    if (spacesFile && pendingSpaces) {
+      try { atomicWrite(spacesFile, JSON.stringify(pendingSpaces.serializeState())); } catch { /* not writable */ }
+      pendingSpaces = null;
+    }
   }
 
   function loadSpaces() {
@@ -42,5 +67,5 @@ export function createPersistence({ stateDir } = {}) {
     catch { return null; } // missing/corrupt: caller starts fresh
   }
 
-  return { loadSettings, saveSettings, scheduleSpacesSave, loadSpaces };
+  return { loadSettings, saveSettings, scheduleSpacesSave, loadSpaces, flush };
 }

@@ -1,4 +1,6 @@
 // Unit tests for the site-learnings loader.
+// Hermetic: every test runs against a fixture learnings tree in a tmp dir
+// (impersonal host example.test). No dependence on ~/.wego or real sites.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,41 +9,70 @@ import path from 'node:path';
 
 import { findLearning, readLearningNotes, hostOf, learningsDir, listSiteTools, runSiteTool, runSiteBrowserTool } from '../src/runtime/learning.js';
 
+// Fixture browser-tool source: same DOM-reading shape as a real compose
+// reader, but against generic selectors with no personal data.
+const READ_COMPOSE_SRC = `// Read the current compose form state (runs IN PAGE via page.evaluate).
+export default function readCompose() {
+  const ed = document.querySelector('div[contenteditable="true"]');
+  return {
+    recipients: document.querySelector('.receiver-editor-wrap')?.textContent.replace(/\\s+/g, ' ').trim() ?? null,
+    subject: [...document.querySelectorAll('input')].map((i) => i.value).find((v) => v) ?? '',
+    body: ed ? ed.textContent : null,
+    url: location.href,
+  };
+}
+`;
+
+// Build a full learnings fixture (manifest + notes + tools + browser-tools)
+// for host example.test in a fresh tmp workspace.
 function withLearningDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wego-learn-'));
   process.env.WEGO_BROWSER_AGENT_WORKSPACE = dir;
-  fs.mkdirSync(path.join(dir, 'learnings', 'example.com', 'notes'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'learnings', 'example.com', 'manifest.json'),
-    JSON.stringify({ site: 'example.com', domains: ['example.com'], notes: ['notes/a.md'] }));
-  fs.writeFileSync(path.join(dir, 'learnings', 'example.com', 'notes', 'a.md'), '# example notes\n');
+  const site = path.join(dir, 'learnings', 'example.test');
+  fs.mkdirSync(path.join(site, 'notes'), { recursive: true });
+  fs.mkdirSync(path.join(site, 'tools'), { recursive: true });
+  fs.mkdirSync(path.join(site, 'browser-tools'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'manifest.json'), JSON.stringify({
+    site: 'example.test',
+    domains: ['example.test', 'wx.example.test'],
+    intents: ['compose email', 'read page'],
+    notes: ['notes/a.md'],
+    tools: ['compose'],
+    browserTools: ['readCompose'],
+  }));
+  fs.writeFileSync(path.join(site, 'notes', 'a.md'), '# example notes\ncompose: fill .receiver-editor-wrap\n');
+  fs.writeFileSync(path.join(site, 'tools', 'compose.mjs'),
+    'export default async (args) => ({ composed: true, to: args.to ?? null });\n');
+  fs.writeFileSync(path.join(site, 'browser-tools', 'readCompose.js'), READ_COMPOSE_SRC);
   t.after(() => { delete process.env.WEGO_BROWSER_AGENT_WORKSPACE; fs.rmSync(dir, { recursive: true, force: true }); });
   return dir;
 }
 
 test('findLearning matches host and subdomains; misses others', (t) => {
   withLearningDir(t);
-  assert.equal(findLearning('example.com')?.site, 'example.com');
-  assert.equal(findLearning('www.example.com')?.site, 'example.com');
-  assert.equal(findLearning('notexample.com'), null);
-  assert.equal(findLearning('example.com.evil.io'), null); // suffix trap must not match
+  assert.equal(findLearning('example.test')?.site, 'example.test');
+  assert.equal(findLearning('wx.example.test')?.site, 'example.test');
+  assert.equal(findLearning('notexample.test'), null);
+  assert.equal(findLearning('example.test.evil.io'), null); // suffix trap must not match
 });
 
 test('readLearningNotes returns note content; unknown host returns null', (t) => {
   withLearningDir(t);
-  assert.match(readLearningNotes('example.com'), /example notes/);
+  assert.match(readLearningNotes('example.test'), /example notes/);
+  assert.match(readLearningNotes('wx.example.test'), /receiver-editor-wrap/);
   assert.equal(readLearningNotes('nope.io'), null);
 });
 
-test('user learnings dir (~/.wego) contains mail.qq.com with notes', () => {
-  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
-  const hit = findLearning('wx.mail.qq.com');
+test('fixture learnings dir contains example.test with notes', (t) => {
+  withLearningDir(t);
+  const hit = findLearning('wx.example.test');
   assert.ok(hit);
-  const notes = readLearningNotes('mail.qq.com');
-  assert.match(notes, /cmp-account-input/);
+  const notes = readLearningNotes('example.test');
+  assert.match(notes, /compose/);
 });
 
-test('bundled example (publishable) exposes readPageInfo browser-tool', async () => {
-  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+test('bundled example (publishable) exposes readPageInfo browser-tool', async (t) => {
+  withLearningDir(t); // keep hermetic even though this imports from the repo
   const mod = await import('../skills/wego-browser/learnings-example/example.com/browser-tools/readPageInfo.js');
   const fakeDoc = {
     title: 'Example Domain',
@@ -59,51 +90,53 @@ test('bundled example (publishable) exposes readPageInfo browser-tool', async ()
   }
 });
 
-test('hostOf parses urls; bare hosts return null (learnContext passes them through)', () => {
-  assert.equal(hostOf('https://wx.mail.qq.com/home'), 'wx.mail.qq.com');
-  assert.equal(hostOf('mail.qq.com'), null);
+test('hostOf parses urls; bare hosts return null (learnContext passes them through)', (t) => {
+  withLearningDir(t);
+  assert.equal(hostOf('https://wx.example.test/home'), 'wx.example.test');
+  assert.equal(hostOf('example.test'), null);
   assert.equal(hostOf('not a url'), null);
   assert.ok(learningsDir().endsWith('learnings'));
 });
 
-test('listSiteTools exposes tools/browserTools/intents for mail.qq.com', () => {
-  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
-  const tools = listSiteTools('wx.mail.qq.com');
+test('listSiteTools exposes tools/browserTools/intents for example.test', (t) => {
+  withLearningDir(t);
+  const tools = listSiteTools('wx.example.test');
   assert.ok(tools.tools.includes('compose'));
   assert.ok(tools.browserTools.includes('readCompose'));
   assert.ok(tools.intents.length > 0);
   assert.equal(listSiteTools('unknown.io'), null);
 });
 
-test('runSiteTool rejects unknown sites and undeclared tools', async () => {
-  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+test('runSiteTool rejects unknown sites and undeclared tools; runs declared tool', async (t) => {
+  withLearningDir(t);
   await assert.rejects(() => runSiteTool('unknown.io', 'x'), /no learning/);
-  await assert.rejects(() => runSiteTool('mail.qq.com', 'nope'), /no tool "nope"/);
+  await assert.rejects(() => runSiteTool('example.test', 'nope'), /no tool "nope"/);
+  assert.deepEqual(await runSiteTool('example.test', 'compose', { to: 'user@example.test' }),
+    { composed: true, to: 'user@example.test' });
 });
 
-test('runSiteBrowserTool rejects undeclared browser-tools', async () => {
-  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
-  await assert.rejects(() => runSiteBrowserTool({}, 'mail.qq.com', 'nope'), /no browser-tool "nope"/);
+test('runSiteBrowserTool rejects undeclared browser-tools', async (t) => {
+  withLearningDir(t);
+  await assert.rejects(() => runSiteBrowserTool({}, 'example.test', 'nope'), /no browser-tool "nope"/);
 });
 
-// The real compose browser-tool: in-page DOM read of a fake compose form.
-test('readCompose browser-tool reads recipients/subject/body', async () => {
-  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
-  const mod = await import(process.env.HOME + '/.wego/learnings/mail.qq.com/browser-tools/readCompose.js');
-  const fn = mod.default;
+// The compose browser-tool: in-page DOM read of a fake compose form.
+test('readCompose browser-tool reads recipients/subject/body', async (t) => {
+  withLearningDir(t);
   const fakeDoc = {
     querySelector(sel) {
-      if (sel === '.receiver-editor-wrap') return { textContent: '收件人 campus@dewu.com 抄送' };
-      if (sel === 'div[contenteditable="true"]') return { textContent: '正文内容' };
+      if (sel === '.receiver-editor-wrap') return { textContent: 'To user@example.test Cc' };
+      if (sel === 'div[contenteditable="true"]') return { textContent: 'Body text' };
       return null;
     },
-    querySelectorAll() { return [{ value: '' }, { value: '主题X' }]; },
+    querySelectorAll() { return [{ value: '' }, { value: 'Subject X' }]; },
   };
   const page = { evaluate: (f, arg) => { globalThis.document = fakeDoc; try { return f(arg); } finally { delete globalThis.document; } } };
-  globalThis.location = { href: 'https://wx.mail.qq.com/#/compose' };
-  const out = await runSiteBrowserTool(page, 'mail.qq.com', 'readCompose');
+  globalThis.location = { href: 'https://example.test/compose' };
+  const out = await runSiteBrowserTool(page, 'example.test', 'readCompose');
   delete globalThis.location;
-  assert.equal(out.subject, '主题X');
-  assert.equal(out.body, '正文内容');
-  assert.match(out.recipients, /campus@dewu\.com/);
+  assert.equal(out.subject, 'Subject X');
+  assert.equal(out.body, 'Body text');
+  assert.match(out.recipients, /user@example\.test/);
+  assert.equal(out.url, 'https://example.test/compose');
 });

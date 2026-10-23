@@ -101,6 +101,14 @@ export class SpaceManager extends EventEmitter {
     return space;
   }
 
+  // Never leave zero spaces behind: the chrome needs at least one.
+  #ensureSpaceRemains() {
+    if (this.#spaces.size === 0) {
+      const personal = this.createPersonalSpace();
+      this.addUserTab(personal.id, 'about:blank');
+    }
+  }
+
   // UI path: close any space regardless of control state (the user owns the
   // browser; an agent driving the closed space gets WEGO_TASK_SPACE_NOT_FOUND
   // on its next call). Never leaves zero spaces behind.
@@ -110,10 +118,7 @@ export class SpaceManager extends EventEmitter {
       try { this.#hooks.destroyView?.(space, tab); } catch { /* view already gone */ }
     }
     this.#spaces.delete(id);
-    if (this.#spaces.size === 0) {
-      const personal = this.createPersonalSpace();
-      this.addUserTab(personal.id, 'about:blank');
-    }
+    this.#ensureSpaceRemains();
     if (this.activeSpaceId === id || !this.#spaces.has(this.activeSpaceId)) {
       this.activeSpaceId = this.#spaces.keys().next().value ?? null;
     }
@@ -170,7 +175,8 @@ export class SpaceManager extends EventEmitter {
       try { this.#hooks.destroyView?.(space, tab); } catch { /* view already gone */ }
     }
     this.#spaces.delete(id);
-    if (this.activeSpaceId === id) {
+    this.#ensureSpaceRemains(); // same zero-space fallback as closeUserSpace
+    if (this.activeSpaceId === id || !this.#spaces.has(this.activeSpaceId)) {
       this.activeSpaceId = this.#spaces.keys().next().value ?? null;
     }
     this.emit('spaceChanged', id);
@@ -351,12 +357,6 @@ export class SpaceManager extends EventEmitter {
   }
 
   // Reorder a tab within its space; order persists via spaces.json.
-  moveTab(id, targetId, toIndex) {
-    const space = this.requireSpace(id);
-    this.#requireAgentControl(space);
-    return this.#moveTabImpl(space, targetId, toIndex);
-  }
-
   // UI path (user gesture in the chrome): not gated by agent control.
   moveUserTab(id, targetId, toIndex) {
     const space = this.requireSpace(id);
@@ -413,6 +413,12 @@ export class SpaceManager extends EventEmitter {
   async whenTabsReady(id) {
     const space = this.requireSpace(id);
     await Promise.all(space.tabs.map((t) => t.targetIdReady?.catch(() => {}) ?? null));
+    // Fail like awaitTargetId: a tab whose marker resolution failed would
+    // otherwise leak its placeholder tab-N id into bridge listTabs responses.
+    const stale = space.tabs.find((t) => t.targetId.startsWith('tab-'));
+    if (stale) {
+      throw err('WEGO_OPERATION_FAILED', `CDP target resolution failed for tab ${stale.targetId} in space ${id}`);
+    }
   }
 
   noteUrl(id, targetId, url) {

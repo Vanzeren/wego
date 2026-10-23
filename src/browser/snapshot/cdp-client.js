@@ -1,58 +1,59 @@
 // Minimal browser-level CDP client for the Electron main process.
-// One lazily-opened WebSocket to the Chromium endpoint; flatten sessions.
-// Used by the snapshot orchestrator to reach OOPIF targets.
+// Rides a VirtualCdpServer client in-process (no socket, no TCP endpoint);
+// flatten sessions. Used by the snapshot orchestrator to reach OOPIF targets.
 
 export class MainCdpClient {
-  constructor(webSocketDebuggerUrl) {
-    this._url = webSocketDebuggerUrl;
-    this._ws = null;
-    this._opening = null;
+  constructor(cdpServer) {
+    this._server = cdpServer;
+    this._client = null;
     this._nextId = 1;
     this._pending = new Map();
     this._sessions = new Map(); // targetId -> persistent session (attachCached)
     this._targetsCache = { at: 0, list: null };
+    this._discoveryArmed = false; // Target.setDiscoverTargets sent on the live client
   }
 
-  async _ensureWs() {
-    if (this._ws && this._ws.readyState === WebSocket.OPEN) return this._ws;
-    if (this._opening) return this._opening;
-    this._opening = (async () => {
-      const ws = new WebSocket(this._url);
-      await new Promise((resolve, reject) => {
-        ws.onopen = resolve;
-        ws.onerror = () => reject(new Error('CDP websocket connect failed'));
-      });
-      ws.onmessage = (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch { return; }
-        if (msg.id && this._pending.has(msg.id)) {
-          const { resolve, reject } = this._pending.get(msg.id);
-          this._pending.delete(msg.id);
-          if (msg.error) reject(new Error(msg.error.message || 'CDP error'));
-          else resolve(msg.result);
+  _ensureClient() {
+    if (this._client) return this._client;
+    this._client = this._server.openClient((msg) => {
+      if (msg.id && this._pending.has(msg.id)) {
+        const { resolve, reject } = this._pending.get(msg.id);
+        this._pending.delete(msg.id);
+        if (msg.error) reject(new Error(msg.error.message || 'CDP error'));
+        else resolve(msg.result);
+        return;
+      }
+      // Prune cached attachCached sessions for destroyed targets (and any
+      // flattened child sessions they spawned) so _sessions cannot leak.
+      if (msg.method === 'Target.targetDestroyed') {
+        const targetId = msg.params?.targetId;
+        const sessionId = msg.params?.sessionId;
+        for (const [key, session] of this._sessions) {
+          if (key === targetId || (sessionId && session.sessionId === sessionId)) {
+            this._sessions.delete(key);
+          }
         }
-      };
-      ws.onclose = () => {
-        this._ws = null;
-        for (const { reject } of this._pending.values()) reject(new Error('CDP websocket closed'));
-        this._pending.clear();
-      };
-      this._ws = ws;
-      return ws;
-    })();
-    try {
-      return await this._opening;
-    } finally {
-      this._opening = null;
+      }
+    });
+    // One-time per client: receive Target.targetDestroyed events so cached
+    // attachCached sessions are pruned (see the push handler above).
+    if (!this._discoveryArmed) {
+      this._discoveryArmed = true;
+      this.send('Target.setDiscoverTargets', { discover: true }).catch(() => {});
     }
+    return this._client;
   }
 
   async send(method, params = {}, sessionId) {
-    await this._ensureWs();
+    const client = this._ensureClient();
     const id = this._nextId++;
     return new Promise((resolve, reject) => {
       this._pending.set(id, { resolve, reject });
-      this._ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+      Promise.resolve(
+        client.handleMessage({ id, method, params, ...(sessionId ? { sessionId } : {}) }),
+      ).catch((e) => {
+        if (this._pending.delete(id)) reject(e);
+      });
     });
   }
 

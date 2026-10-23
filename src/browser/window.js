@@ -10,6 +10,7 @@ import { createPersistence } from './persistence.js';
 import { setupViews } from './views.js';
 import { setupFindbar } from './findbar.js';
 import { setupIpc } from './ipc.js';
+import { VirtualCdpServer } from './cdp-server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CHROME_HEIGHT = 84;
 const SIDEBAR_WIDTH = 200;
 
-export function createMainWindow({ httpEndpoint, stateDir } = {}) {
+export function createMainWindow({ stateDir } = {}) {
   const persistence = createPersistence({ stateDir });
   const settings = persistence.loadSettings({ uiZoom: 1, pageZoomLevel: 0 });
 
@@ -35,21 +36,16 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     },
   });
 
-  // Single window, stacked views. Agent tabs get compositor-primed at
-  // creation (views.js): raised ~600ms showing a pixel-perfect clone of the
-  // user's current content (invisible), then covered — their input pipeline
-  // stays live forever after.
-  function windowFor(space) {
-    return win;
-  }
+  // Single window, stacked views. Agent tabs mount stacked in the main
+  // window (non-top, beneath the user's active view); input reaches covered
+  // views fine, and the re-attach self-heal in views.js (the compositor
+  // priming note in createView) recovers raced attaches.
 
   // Shared context, late-bound as modules come up.
   const ctx = {
     win,
     settings,
-    httpEndpoint,
-    downloads: new Map(), // url → { savePath, filename, state } (views.js fills)
-    windowFor,
+    downloads: new Map(), // unique id (url#N) → { id, url, savePath, filename, state } (views.js fills)
     spaces: () => spaces,
     activeTabWc: () => {
       const space = spaces.getActive();
@@ -99,27 +95,49 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
 
   const spaces = new SpaceManager({ createView: views.createView, destroyView: views.destroyView });
 
+  // Virtual browser-level CDP endpoint over the tab registry: page targets
+  // come from SpaceManager tabs (placeholder tab-N ids are hidden until the
+  // real targetId lands), OOPIF iframe targets are enumerated through each
+  // tab's root debugger on demand. Discovery pushes ride spaceChanged diffs.
+  const cdpServer = new VirtualCdpServer({
+    listTargets: () => {
+      const out = [];
+      for (const space of spaces.allSpaces()) {
+        for (const tab of space.tabs) {
+          if (!tab.view || tab.targetId.startsWith('tab-')) continue;
+          out.push({ targetId: tab.targetId, type: 'page', url: tab.url ?? '', title: tab.title ?? '' });
+        }
+      }
+      return out;
+    },
+    resolveWc: (targetId) => {
+      for (const space of spaces.allSpaces()) {
+        const tab = space.tabs.find((t) => t.targetId === targetId);
+        const wc = tab?.view?.webContents;
+        if (wc && !wc.isDestroyed()) return wc;
+      }
+      return null;
+    },
+  });
+  ctx.cdpServer = cdpServer;
+  spaces.on('spaceChanged', () => cdpServer.notifyTargetsChanged());
+
   // ---- layout: stacked views, active tab raised --------------------------
 
   // Skip redundant setBounds: layoutViews runs on every spaceChanged (every
   // navigation/title update), but the bounds only change on resize/zoom.
   const lastBounds = new WeakMap();
   let currentTop = null;
-  let currentAgentTop = null;
 
-  // Lay out one window: every view of its spaces at full bounds, the active
-  // tab raised; self-healing z-order (addChildView puts new views on top).
-  function layoutWindow(targetWin, spacesInWin, activeSpace) {
-    if (!targetWin || targetWin.isDestroyed()) return;
-    const [w, h] = targetWin.getContentSize();
-    let offX = 0;
-    let offY = 0;
-    if (targetWin === win) {
-      // The chrome UI lives in the (zoomed) chrome page: its 200px sidebar
-      // and 84px bars occupy 200·uiZoom / 84·uiZoom window pixels.
-      offX = Math.round(SIDEBAR_WIDTH * settings.uiZoom);
-      offY = Math.round(CHROME_HEIGHT * settings.uiZoom);
-    }
+  // Lay out the window: every view at full bounds, the active tab raised;
+  // self-healing z-order (addChildView puts new views on top).
+  function layoutWindow(spacesInWin, activeSpace) {
+    if (win.isDestroyed()) return;
+    const [w, h] = win.getContentSize();
+    // The chrome UI lives in the (zoomed) chrome page: its 200px sidebar
+    // and 84px bars occupy 200·uiZoom / 84·uiZoom window pixels.
+    const offX = Math.round(SIDEBAR_WIDTH * settings.uiZoom);
+    const offY = Math.round(CHROME_HEIGHT * settings.uiZoom);
     const bounds = {
       x: offX,
       y: offY,
@@ -137,22 +155,21 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     }
     const top = activeSpace?.tabs.find((t) => t.targetId === activeSpace.activeTargetId)?.view ?? null;
     if (!top) return;
-    const children = targetWin.contentView.children;
+    const children = win.contentView.children;
     const isOnTop = children.length > 0 && children[children.length - 1] === top;
-    const memo = targetWin === win ? currentTop : currentAgentTop;
-    if (!isOnTop || top !== memo) {
+    if (!isOnTop || top !== currentTop) {
       try {
-        targetWin.contentView.removeChildView(top); // re-add => top of z-order
-        targetWin.contentView.addChildView(top);
+        win.contentView.removeChildView(top); // re-add => top of z-order
+        win.contentView.addChildView(top);
       } catch { /* view race */ }
     }
-    if (targetWin === win) currentTop = top; else currentAgentTop = top;
+    currentTop = top;
   }
 
   function layoutViews() {
     if (win.isDestroyed()) return;
     const prevMainTop = currentTop;
-    layoutWindow(win, spaces.allSpaces(), spaces.getActive());
+    layoutWindow(spaces.allSpaces(), spaces.getActive());
     // the findbar floats above page content in the main window
     if (findbar.isVisible() && findbar.view()) {
       findbar.raise();
@@ -203,8 +220,10 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   return {
     win,
     spaces,
+    cdpServer,
     downloads: ctx.downloads,
     applyZoom: zoomGlue.applyZoom,
+    flushPersistence: () => persistence.flush(),
     focus() {
       if (win.isDestroyed()) return;
       if (win.isMinimized()) win.restore();

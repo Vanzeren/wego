@@ -14,8 +14,13 @@ function migrateDir(from, to) {
 }
 migrateDir(path.join(os.homedir(), '.ego-lite'), path.join(os.homedir(), '.wego'));
 migrateDir(path.join(app.getPath('appData'), 'ego-lite'), path.join(app.getPath('appData'), 'wego'));
-// Chromium picks a free port; the chosen port/ws path land in DevToolsActivePort.
-app.commandLine.appendSwitch('remote-debugging-port', '0');
+// No TCP DevTools endpoint: raw CDP tunnels over the authenticated bridge
+// socket (cdp-server.js VirtualCdpServer). WEGO_DEBUG_PORT is a dev-only escape
+// hatch that re-enables Chromium's UNAUTHENTICATED 127.0.0.1 debug server —
+// never set it on shared machines.
+if (process.env.WEGO_DEBUG_PORT) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.WEGO_DEBUG_PORT);
+}
 
 const gotLock = app.requestSingleInstanceLock();
 let windowApi = null;
@@ -36,32 +41,23 @@ async function start() {
   fs.mkdirSync(egoDir, { recursive: true });
   fs.chmodSync(egoDir, 0o700);
 
-  const cdp = readCdpEndpoint();
+  if (!process.env.WEGO_DEBUG_PORT) {
+    // Drop the stale file from older versions so nothing probes a dead port.
+    try { fs.unlinkSync(path.join(app.getPath('userData'), 'DevToolsActivePort')); } catch { /* absent */ }
+  }
 
   const { createMainWindow } = await import('./window.js');
   const { startBridgeServer } = await import('./bridge.js');
 
-  windowApi = createMainWindow({ httpEndpoint: cdp.httpEndpoint, stateDir: egoDir });
-  bridgeHandle = await startBridgeServer({ spaces: windowApi.spaces, windowApi, cdp });
+  windowApi = createMainWindow({ stateDir: egoDir });
+  bridgeHandle = await startBridgeServer({
+    spaces: windowApi.spaces,
+    windowApi,
+    cdpServer: windowApi.cdpServer,
+  });
 
-  app.on('will-quit', () => bridgeHandle?.close());
-}
-
-function readCdpEndpoint() {
-  const file = path.join(app.getPath('userData'), 'DevToolsActivePort');
-  const deadline = Date.now() + 10_000;
-  const waitBuf = new Int32Array(new SharedArrayBuffer(4));
-  for (;;) {
-    try {
-      const [port, wsPath] = fs.readFileSync(file, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean);
-      if (port && wsPath) {
-        return {
-          webSocketDebuggerUrl: `ws://127.0.0.1:${port}${wsPath}`,
-          httpEndpoint: `http://127.0.0.1:${port}`,
-        };
-      }
-    } catch { /* not written yet */ }
-    if (Date.now() > deadline) throw new Error(`DevToolsActivePort not found at ${file}`);
-    Atomics.wait(waitBuf, 0, 0, 50);
-  }
+  app.on('will-quit', () => {
+    windowApi?.flushPersistence?.(); // sync-write pending settings/spaces before exit
+    bridgeHandle?.close();
+  });
 }

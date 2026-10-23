@@ -14,6 +14,7 @@ export function setupFindbar(ctx) {
   let view = null;
   let visible = false;
   let text = '';
+  let loaded = false; // findbar.html has registered onPrefill
 
   function ensure() {
     if (view) return view;
@@ -27,6 +28,12 @@ export function setupFindbar(ctx) {
     win.contentView.addChildView(view);
     view.webContents.loadFile(path.join(__dirname, 'renderer', 'findbar.html')).catch(() => {});
     view.webContents.setZoomFactor(settings.uiZoom);
+    // First show() can beat findbar.html's onPrefill registration; deliver the
+    // prefill once the page signals it is loaded instead.
+    view.webContents.on('did-finish-load', () => {
+      loaded = true;
+      if (visible) view.webContents.send('findbar:prefill', text);
+    });
     return view;
   }
 
@@ -53,7 +60,7 @@ export function setupFindbar(ctx) {
     raise();
     view.webContents.setZoomFactor(settings.uiZoom);
     view.webContents.focus();
-    view.webContents.send('findbar:prefill', text);
+    if (loaded) view.webContents.send('findbar:prefill', text);
   }
 
   function hide() {

@@ -25,10 +25,10 @@ export function decryptCookieValue(encrypted, hostKey, key) {
     return buf.toString('utf8');
   }
   const decipher = crypto.createDecipheriv('aes-128-cbc', key, IV);
-  let plain = Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]);
-  // PKCS7 unpad
-  const pad = plain[plain.length - 1];
-  if (pad >= 1 && pad <= 16) plain = plain.subarray(0, plain.length - pad);
+  // PKCS7 padding is stripped by decipher.final() (autoPadding defaults to
+  // true) — a manual unpad here would truncate values whose real last byte
+  // happens to be 0x01-0x10.
+  const plain = Buffer.concat([decipher.update(buf.subarray(3)), decipher.final()]);
   // Strip the 32-byte host-key hash prefix when present.
   if (plain.length > 32) {
     const hash = plain.subarray(0, 32);
@@ -53,12 +53,12 @@ function kwalletPassword() {
   if (!qdbus) return null;
   try {
     const base = ['org.kde.kwalletd5', '/modules/kwalletd5'];
-    const open = execFileSync(qdbus, [...base, 'org.kde.KWallet.open', 'kdewallet', '0', 'ego-import'], {
+    const open = execFileSync(qdbus, [...base, 'org.kde.KWallet.open', 'kdewallet', '0', 'wego-import'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000,
     }).trim();
     if (!/^-?\d+$/.test(open) || Number(open) < 0) return null;
     for (const folder of ['Chrome Keys', 'Chromium Keys']) {
-      const out = execFileSync(qdbus, [...base, 'org.kde.KWallet.readPassword', open, folder, 'Chrome Safe Storage', 'ego-import'], {
+      const out = execFileSync(qdbus, [...base, 'org.kde.KWallet.readPassword', open, folder, 'Chrome Safe Storage', 'wego-import'], {
         encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000,
       });
       if (out) return out.replace(/\n$/, '');
@@ -118,14 +118,22 @@ export function readCookiesFromDb(dbFile) {
   }
 }
 
-// Copy the live Chrome cookie store (DB + WAL) into a temp dir and read it.
-export async function readChromeCookies({ chromeDir } = {}) {
+// Copy the live Chrome cookie store (DB + WAL) into a private staging dir
+// under the app state dir (0700, like main.js) and read it. Cookies are
+// sensitive: os.tmpdir() can be world-readable, ~/.wego is not.
+export async function readChromeCookies({ chromeDir, stateDir } = {}) {
   const base = chromeDir ?? path.join(os.homedir(), '.config', 'google-chrome', 'Default');
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ego-chrome-cookies-'));
+  const stateRoot = stateDir ?? path.join(os.homedir(), '.wego');
+  fs.mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
+  const tmp = fs.mkdtempSync(path.join(stateRoot, 'wego-chrome-cookies-')); // mkdtemp dirs are 0700
   try {
     for (const suffix of ['', '-wal', '-shm']) {
       const src = base + '/Cookies' + suffix;
-      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(tmp, 'Cookies' + suffix));
+      if (fs.existsSync(src)) {
+        const copy = path.join(tmp, 'Cookies' + suffix);
+        fs.copyFileSync(src, copy);
+        fs.chmodSync(copy, 0o600);
+      }
     }
     if (!fs.existsSync(path.join(tmp, 'Cookies'))) {
       throw new Error(`Chrome Cookies DB not found at ${base}`);
@@ -138,9 +146,9 @@ export async function readChromeCookies({ chromeDir } = {}) {
 }
 
 // Full pipeline: returns Electron-ready cookie descriptors for ses.cookies.set.
-export async function importChromeCookieDescriptors({ chromeDir, password } = {}) {
+export async function importChromeCookieDescriptors({ chromeDir, password, stateDir } = {}) {
   const key = deriveKey(password ?? chromeKeychainPassword());
-  const rows = await readChromeCookies({ chromeDir });
+  const rows = await readChromeCookies({ chromeDir, stateDir });
   const now = Math.floor(Date.now() / 1000);
   const out = [];
   let undecryptable = 0;

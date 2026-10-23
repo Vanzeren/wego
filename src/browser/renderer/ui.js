@@ -235,10 +235,15 @@ function navigate(raw) {
 }
 
 function flashRing(x, y) {
+  // Views are laid out at SIDEBAR_WIDTH·uiZoom / CHROME_HEIGHT·uiZoom window
+  // pixels, and CSS px in this page scale by uiZoom. uiZoom is not part of the
+  // pushed state, but Blink reports offsetHeight in zoom-scaled pixels, so the
+  // 40px tab strip measures 40·uiZoom — that ratio recovers the factor.
+  const z = ($('#tabstrip')?.offsetHeight || 40) / 40;
   const ring = document.createElement('div');
   ring.className = 'ring';
-  ring.style.left = `${SIDEBAR_WIDTH + x - 12}px`;
-  ring.style.top = `${CHROME_HEIGHT + y - 12}px`;
+  ring.style.left = `${SIDEBAR_WIDTH + (x - 12) / z}px`;
+  ring.style.top = `${CHROME_HEIGHT + (y - 12) / z}px`;
   $('#overlay').appendChild(ring);
   setTimeout(() => ring.remove(), 650);
 }

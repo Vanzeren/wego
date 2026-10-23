@@ -11,12 +11,15 @@ dependencies** — do not add any without explicit approval. Node ≥ 22, Electr
   server) and the SDK (client + runtime). Change both sides together.
 - The bridge never holds per-connection state; the numeric space `id` travels
   in every params object. `useTaskSpace(id)` is client-side selection.
-- Raw CDP never flows over the bridge socket. The SDK connects to the
-  browser-level CDP WebSocket (`getCDPEndpoint()`) with flatten sessions.
+- Raw CDP tunnels over the bridge socket (`cdpMessage` / `{event:"cdp"}`
+  pushes) via the in-process VirtualCdpServer (`src/browser/cdp-server.js`);
+  there is NO TCP debug endpoint (`WEGO_DEBUG_PORT` is the dev-only,
+  unauthenticated escape hatch).
 - Bridge responses must never expose placeholder `tab-N` targetIds;
-  `SpaceManager.awaitTargetId` gates this. Views are created with a unique
-  dark data-URL marker (`wego-marker-…` in an HTML comment) that is matched
-  in `/json/list`.
+  `SpaceManager.awaitTargetId` gates this. Views learn their real Chromium
+  targetId via `Target.getTargetInfo` on the in-process
+  `webContents.debugger` (`VirtualCdpServer.resolveTargetId`) — no marker
+  navigation, no DevTools HTTP endpoint.
 - **All tab views stay attached to the window at full visible bounds**; the
   active one is raised in z-order. Detaching or offscreen-parking collapses
   the layout viewport to 0x0 and silently breaks geometry/CDP Input. Covered
@@ -64,8 +67,10 @@ Electron instances: the app holds a single-instance lock. `pkill -f
 - `src/browser/persistence.js` — `settings.json`/`spaces.json` (electron-free,
   unit-testable).
 - `src/browser/spaces.js` — SpaceManager state machine (pure, no electron).
-- `src/browser/bridge.js` — bridge socket server; `src/browser/snapshot/` —
-  snapshot engine; `src/browser/chrome-import.js` — Chrome onboarding.
+- `src/browser/bridge.js` — bridge socket server; `src/browser/cdp-server.js` —
+  virtual CDP endpoint (raw CDP tunnel, refcounted webContents.debugger);
+  `src/browser/snapshot/` — snapshot engine; `src/browser/chrome-import.js` —
+  Chrome onboarding.
 - `src/runtime/page.js` — Page class (core: sessions, receipts, evaluate);
   `src/runtime/driver/` holds Page-adjacent artifacts (`files.js` =
   Download/FileChooser, `namespaces.js` = mouse/keyboard factories).

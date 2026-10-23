@@ -91,9 +91,17 @@ test('ping and meta endpoints', async (t) => {
   assert.deepEqual(await request(sockPath, 'ping'), { id: 1, result: 'pong' });
   const ver = await request(sockPath, 'getBrowserVersion');
   assert.equal(ver.result.currentVersion, '0.1.0');
-  assert.ok(ver.result.cdpEndpoint.startsWith('ws://'));
-  const ep = await request(sockPath, 'getCDPEndpoint');
-  assert.ok(ep.result.webSocketDebuggerUrl);
+  assert.ok('updateAvailable' in ver.result);
+});
+
+test('cdpMessage: validation and no-server error', async (t) => {
+  const { sockPath } = await setup(t); // setup passes no cdpServer
+  // bad shape → invalid argument (validation precedes server availability)
+  let r = await request(sockPath, 'cdpMessage', 'not-an-object');
+  assert.equal(r.error?.error_code, 'WEGO_INVALID_ARGUMENT');
+  // well-formed but no CDP server wired → channel unavailable
+  r = await request(sockPath, 'cdpMessage', { id: 1, method: 'Target.getTargets', params: {} });
+  assert.equal(r.error?.error_code, 'WEGO_CDP_CHANNEL_UNAVAILABLE');
 });
 
 test('profiles: list, create, persist to profiles.json', async (t) => {
@@ -143,11 +151,18 @@ test('handoff blocks createTab and snapshot with WEGO_TASK_SPACE_USER_IN_CONTROL
   assert.match(r.result.targetId, /^CDP-/);
 });
 
-test('snapshot without a live web contents is WEGO_WEB_CONTENTS_UNAVAILABLE', async (t) => {
+test('snapshot without a live tab is WEGO_INVALID_ARGUMENT', async (t) => {
   const { sockPath } = await setup(t);
   const task = (await request(sockPath, 'createTaskSpace', { name: 'snap' })).result;
   const r = await request(sockPath, 'snapshot', { id: task.id });
-  assert.equal(r.error.error_code, 'WEGO_WEB_CONTENTS_UNAVAILABLE');
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
+});
+
+test('paste with an unknown tab is WEGO_INVALID_ARGUMENT', async (t) => {
+  const { sockPath } = await setup(t);
+  const task = (await request(sockPath, 'createTaskSpace', { name: 'paste' })).result;
+  const r = await request(sockPath, 'paste', { id: task.id, targetId: 'nope', text: 'x' });
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
 });
 
 test('snapshot option validation runs before gating', async (t) => {
@@ -157,6 +172,8 @@ test('snapshot option validation runs before gating', async (t) => {
   assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
   r = await request(sockPath, 'snapshot', { id: task.id, options: { scope: 'subtree' } });
   assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT'); // root required
+  r = await request(sockPath, 'snapshot', { id: task.id, options: { maxResultLength: 3.5 } });
+  assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT'); // non-integer rejected
 });
 
 test('failed CDP target resolution surfaces as WEGO_OPERATION_FAILED on createTab', async (t) => {

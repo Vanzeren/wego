@@ -1,5 +1,6 @@
-// Tab view lifecycle: WebContentsView factory, dark targetId marker flow,
-// per-tab input wiring (zoom keys, Ctrl+F), event feeds into SpaceManager,
+// Tab view lifecycle: WebContentsView factory, targetId resolution via the
+// in-process debugger (VirtualCdpServer.resolveTargetId), per-tab input
+// wiring (zoom keys, Ctrl+F), event feeds into SpaceManager,
 // scrollbar injection, find result forwarding.
 // Receives a late-bound ctx (refs assigned by window.js as they come up).
 import { WebContentsView } from 'electron';
@@ -34,62 +35,47 @@ const SCROLLBAR_CSS = `
 `;
 
 export function setupViews(ctx) {
-  // ctx: { win, httpEndpoint, settings, applyZoom, toggleFindbar,
+  // ctx: { win, cdpServer, settings, applyZoom, toggleFindbar,
   //        activeTabWc(), findbar: { isVisible(), view() }, spaces() }
-  const { win, httpEndpoint, settings } = ctx;
+  const { win, settings } = ctx;
 
   // Electron shows a native save dialog for downloads unless a will-download
   // handler sets a path — CDP Browser.setDownloadBehavior alone does NOT stop
   // it. Policy: save to ~/Downloads with Chrome-style dedupe (" (n)" suffix),
-  // and record every download in ctx.downloads (url → {savePath,state}) so
-  // the SDK can resolve the real file via the bridge `downloads` method.
+  // and record every download in ctx.downloads (unique id → {savePath,state})
+  // so the SDK can resolve the real file via the bridge `downloads` method.
+  // The id is `url#N`: concurrent same-URL downloads no longer overwrite each
+  // other, and settled entries prune after a 60s grace TTL so the registry cannot grow unbounded.
   const wiredSessions = new WeakSet();
+  let downloadSeq = 0;
   function wireDownloads(wc) {
     if (wiredSessions.has(wc.session)) return;
     wiredSessions.add(wc.session);
     wc.session.on('will-download', (_e, item) => {
       const dir = path.join(process.env.HOME || '/tmp', 'Downloads');
       fs.mkdirSync(dir, { recursive: true });
-      let target = path.join(dir, item.getFilename());
+      // Defense-in-depth: strip any path components from the suggested name
+      // (Chromium already does) and fall back when nothing usable remains.
+      let name = path.basename(item.getFilename());
+      if (!name || name === '.' || name === '..') name = 'download';
+      let target = path.join(dir, name);
       for (let n = 1; fs.existsSync(target); n++) {
-        const ext = path.extname(item.getFilename());
-        target = path.join(dir, `${item.getFilename().slice(0, -ext.length)} (${n})${ext}`);
+        const ext = path.extname(name);
+        target = path.join(dir, `${name.slice(0, -ext.length)} (${n})${ext}`);
       }
       item.setSavePath(target);
-      const entry = { url: item.getURL(), filename: item.getFilename(), savePath: target, state: 'progressing' };
-      ctx.downloads.set(item.getURL(), entry);
+      const id = `${item.getURL()}#${++downloadSeq}`;
+      const entry = { id, url: item.getURL(), filename: name, savePath: target, state: 'progressing' };
+      ctx.downloads.set(id, entry);
       item.on('updated', (_ev, state) => { entry.state = state === 'interrupted' ? 'interrupted' : 'progressing'; });
-      item.once('done', (_ev, state) => { entry.state = state; }); // 'completed' | 'cancelled' | 'interrupted'
+      item.once('done', (_ev, state) => {
+        entry.state = state; // 'completed' | 'cancelled' | 'interrupted'
+        // Keep settled entries for a grace TTL: a download that completes
+        // within one bridge poll gap must still be observable by
+        // waitForEvent('download')/saveAs; prune after to bound the registry.
+        setTimeout(() => ctx.downloads.delete(id), 60_000).unref();
+      });
     });
-  }
-
-  // Shared target-list cache: concurrent tab creations would otherwise each
-  // fetch and parse /json/list per poll iteration.
-  let targetsCache = { at: 0, list: null };
-  async function fetchTargets() {
-    if (targetsCache.list && Date.now() - targetsCache.at < 50) return targetsCache.list;
-    const res = await fetch(`${httpEndpoint}/json/list`);
-    const list = await res.json();
-    targetsCache = { at: Date.now(), list };
-    return list;
-  }
-
-  // Resolve the real Chromium CDP targetId for a freshly created WebContentsView
-  // by loading a unique marker URL and matching it in the DevTools target list.
-  async function resolveCdpTargetId(marker, wc) {
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      if (wc.isDestroyed()) throw new Error('webContents destroyed');
-      try {
-        const hit = (await fetchTargets()).find((t) => t.url === marker);
-        if (hit) {
-          targetsCache = { at: 0, list: null }; // force refresh for the next marker
-          return hit.id;
-        }
-      } catch { /* endpoint briefly unavailable */ }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    throw new Error(`CDP targetId resolution timed out for ${marker}`);
   }
 
   function wireInput(wc) {
@@ -137,7 +123,6 @@ export function setupViews(ctx) {
       return { action: 'deny' };
     });
     const trackUrl = (url) => {
-      if (url.includes('wego-marker-')) return; // targetId marker
       ctx.spaces().noteUrl(space.id, tab.targetId, url === NEWTAB_URL ? 'about:blank' : url);
     };
     wc.on('did-navigate', (_e, url) => trackUrl(url));
@@ -176,9 +161,7 @@ export function setupViews(ctx) {
     // tab switch) or a freshly created view has no compositor frame yet,
     // the area fills with this color — white here reads as a jarring flash.
     view.setBackgroundColor('#17181c');
-    const host = ctx.windowFor(space);
-    tab._win = host; // views stay in the window they were created in
-    host.contentView.addChildView(view);
+    ctx.win.contentView.addChildView(view);
     // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
     // until the view has been RE-ATTACHED once (remove+add rebinds its input
     // path). Doing it does not change z-order semantics: the layout self-heal
@@ -186,13 +169,12 @@ export function setupViews(ctx) {
     view.setBounds(ctx.initialViewBounds(space));
     const wc = view.webContents;
     const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
-    // Dark data-URL marker: unique (matched in /json/list to resolve the
-    // real CDP targetId) and dark, so new tabs no longer flash white
-    // before the new-tab page paints.
-    const marker = `data:text/html,<!doctype html><style>html{background:%2317181c}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
+    // The real Chromium targetId comes from the in-process debugger
+    // (Target.getTargetInfo) — no marker navigation, no DevTools HTTP
+    // endpoint. The view paints its dark background color until the intended
+    // page's first frame.
     tab.targetIdReady = (async () => {
-      await wc.loadURL(marker); // may reject if a racing goto aborts it
-      const realId = await resolveCdpTargetId(marker, wc);
+      const realId = await ctx.cdpServer.resolveTargetId(wc);
       ctx.spaces().noteTargetId(space.id, tab.targetId, realId);
       // Readiness covers the intended page too: bridge listTabs/createTab
       // await this promise, so a racing SDK goto can never be clobbered by a
@@ -208,7 +190,7 @@ export function setupViews(ctx) {
   }
 
   function destroyView(space, tab) {
-    try { ctx.windowFor(space).contentView.removeChildView(tab.view); } catch { /* not attached */ }
+    try { ctx.win.contentView.removeChildView(tab.view); } catch { /* not attached */ }
     try { tab.view?.webContents.close(); } catch { /* already destroyed */ }
   }
 
