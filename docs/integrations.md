@@ -111,5 +111,5 @@ agent = Agent(
   back. Also for the snapshot/ref workflow and site learnings.
 - **Playwright** when you already have automation code and just want it to
   run against your real, logged-in browser on Linux.
-- **browser-use** — see the compatibility note above; currently use
-  Playwright or the wego SDK instead.
+- **browser-use** when an LLM should decide the steps — use the patched
+  fork above until the upstream fix lands.
