@@ -35,12 +35,20 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     },
   });
 
+  // Hidden-window hosting was tried and dropped: views in a never-shown
+  // window never composite, and CDP mouse input is silently dropped for them
+  // too. Single window + compositor priming (views.js) instead.
+  function windowFor(space) {
+    return win; // single window; see compositor priming in views.js
+  }
+
   // Shared context, late-bound as modules come up.
   const ctx = {
     win,
     settings,
     httpEndpoint,
     downloads: new Map(), // url → { savePath, filename, state } (views.js fills)
+    windowFor,
     spaces: () => spaces,
     activeTabWc: () => {
       const space = spaces.getActive();
@@ -49,7 +57,9 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       return wc && !wc.isDestroyed() ? wc : null;
     },
     chromeHeight: () => CHROME_HEIGHT,
-    initialViewBounds: () => ({ x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 }),
+    initialViewBounds: (space) => space && space.ownership === 'agent'
+      ? { x: 0, y: 0, width: 1400, height: 900 }
+      : { x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 },
     layoutViews,
     pushState,
   };
@@ -95,14 +105,19 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   const lastBounds = new WeakMap();
   let currentTop = null;
 
-  function layoutViews() {
-    if (win.isDestroyed()) return;
-    const [w, h] = win.getContentSize();
-    // The chrome UI lives in the (zoomed) chrome page: its 200px sidebar and
-    // 84px bars occupy 200·uiZoom / 84·uiZoom window pixels. View bounds must
-    // use the scaled offsets or the views overlap the chrome.
-    const offX = Math.round(SIDEBAR_WIDTH * settings.uiZoom);
-    const offY = Math.round(CHROME_HEIGHT * settings.uiZoom);
+  // Lay out one window: every view of its spaces at full bounds, the active
+  // tab raised; self-healing z-order (addChildView puts new views on top).
+  function layoutWindow(targetWin, spacesInWin, activeSpace) {
+    if (!targetWin || targetWin.isDestroyed()) return;
+    const [w, h] = targetWin.getContentSize();
+    let offX = 0;
+    let offY = 0;
+    if (targetWin === win) {
+      // The chrome UI lives in the (zoomed) chrome page: its 200px sidebar
+      // and 84px bars occupy 200·uiZoom / 84·uiZoom window pixels.
+      offX = Math.round(SIDEBAR_WIDTH * settings.uiZoom);
+      offY = Math.round(CHROME_HEIGHT * settings.uiZoom);
+    }
     const bounds = {
       x: offX,
       y: offY,
@@ -110,7 +125,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       height: Math.max(0, h - offY),
     };
     const key = `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
-    for (const space of spaces.allSpaces()) {
+    for (const space of spacesInWin) {
       for (const tab of space.tabs) {
         if (!tab.view) continue;
         if (lastBounds.get(tab.view) === key) continue;
@@ -118,34 +133,32 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
         try { tab.view.setBounds(bounds); } catch { /* destroyed */ }
       }
     }
-    const active = spaces.getActive();
-    const top = active?.tabs.find((t) => t.targetId === active.activeTargetId)?.view ?? null;
-    // Self-healing z-order: createView's addChildView puts NEW views on top,
-    // which would leave an agent tab covering the user's page. Verify the
-    // actual tail order instead of trusting currentTop bookkeeping.
-    const wantTail = [];
-    if (top) wantTail.push(top);
-    if (findbar.isVisible() && findbar.view()) wantTail.push(findbar.view());
-    const children = win.contentView.children;
-    const tail = children.slice(-wantTail.length);
-    const ordered = wantTail.length > 0 && wantTail.every((v, i) => tail[i] === v);
-    if (!ordered) {
-      if (top !== currentTop && findbar.isVisible()) {
-        // tab actually switched: the find selection belongs to the old tab
-        findbar.hide();
-        findbar.clearText();
-      }
-      if (top) {
-        try {
-          win.contentView.removeChildView(top); // re-add => top of z-order
-          win.contentView.addChildView(top);
-        } catch { /* view race */ }
-      }
-      if (findbar.isVisible() && findbar.view()) {
-        findbar.raise();
-        findbar.view().setBounds(findbar.bounds()); // track resize/zoom
-      }
-      currentTop = top;
+    const top = activeSpace?.tabs.find((t) => t.targetId === activeSpace.activeTargetId)?.view ?? null;
+    if (!top) return;
+    const children = targetWin.contentView.children;
+    const isOnTop = children.length > 0 && children[children.length - 1] === top;
+    if (!isOnTop || top !== currentTop) {
+      try {
+        targetWin.contentView.removeChildView(top); // re-add => top of z-order
+        targetWin.contentView.addChildView(top);
+      } catch { /* view race */ }
+    }
+    currentTop = top;
+  }
+
+  function layoutViews() {
+    if (win.isDestroyed()) return;
+    const prevMainTop = currentTop;
+    layoutWindow(win, spaces.allSpaces(), spaces.getActive());
+    // the findbar floats above page content in the main window
+    if (findbar.isVisible() && findbar.view()) {
+      findbar.raise();
+      findbar.view().setBounds(findbar.bounds()); // track resize/zoom
+    }
+    // tab actually switched in the main window: close find selection
+    if (currentTop !== prevMainTop && findbar.isVisible()) {
+      findbar.hide();
+      findbar.clearText();
     }
   }
 

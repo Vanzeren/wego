@@ -176,8 +176,13 @@ export function setupViews(ctx) {
     // tab switch) or a freshly created view has no compositor frame yet,
     // the area fills with this color — white here reads as a jarring flash.
     view.setBackgroundColor('#17181c');
-    win.contentView.addChildView(view);
-    view.setBounds(ctx.initialViewBounds());
+    const host = ctx.windowFor(space);
+    host.contentView.addChildView(view);
+    // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
+    // until the view has been RE-ATTACHED once (remove+add rebinds its input
+    // path). Doing it does not change z-order semantics: the layout self-heal
+    // keeps the correct view on top either way.
+    view.setBounds(ctx.initialViewBounds(space));
     const wc = view.webContents;
     const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
     // Dark data-URL marker: unique (matched in /json/list to resolve the
@@ -197,11 +202,27 @@ export function setupViews(ctx) {
     // Handlers (awaitTargetId/whenTabsReady) attach later; silence the
     // rejection window in between.
     tab.targetIdReady.catch(() => {});
+    // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
+    // until the view has actually painted a frame while on top. Re-attach
+    // (remove+add) puts it on top; re-cover on its first real paint so the
+    // user's page is only covered for a few milliseconds of dark content.
+    tab.targetIdReady.then(() => {
+      if (wc.isDestroyed()) return;
+      const cover = () => ctx.layoutViews();
+      let done = false;
+      const finish = () => { if (!done) { done = true; cover(); } };
+      try {
+        host.contentView.removeChildView(view);
+        host.contentView.addChildView(view); // on top now
+      } catch { finish(); return; }
+      wc.once('paint', finish);
+      setTimeout(finish, 800); // belt: never leave it covering
+    }).catch(() => {});
     return view;
   }
 
   function destroyView(space, tab) {
-    try { win.contentView.removeChildView(tab.view); } catch { /* not attached */ }
+    try { ctx.windowFor(space).contentView.removeChildView(tab.view); } catch { /* not attached */ }
     try { tab.view?.webContents.close(); } catch { /* already destroyed */ }
   }
 
