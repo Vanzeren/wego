@@ -5,13 +5,55 @@
   "type": "module",
   "main": "src/browser/main.js",
   "private": true,
+  "license": "MIT",
+  "author": "wego contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wzr666/wego"
+  },
+  "homepage": "https://github.com/wzr666/wego",
   "scripts": {
     "start": "electron .",
     "cli": "node bin/wego-browser",
     "test": "node --test test/",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "dist": "electron-builder --linux AppImage --publish never"
   },
   "bin": {
     "wego-browser": "bin/wego-browser"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.wego.browser",
+    "productName": "wego",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**",
+      "bin/**",
+      "skill-body/**",
+      "skills/**",
+      "package.json",
+      "build/icon.png",
+      "!test/**",
+      "!fixtures/**",
+      "!scripts/**",
+      "!docs/**",
+      "!.git/**"
+    ],
+    "linux": {
+      "target": "AppImage",
+      "category": "Network"
+    },
+    "appImage": {
+      "artifactName": "wego-${version}-${arch}.AppImage"
+    }
+  },
+  "allowScripts": {
+    "electron@38.8.6": true
   }
 }

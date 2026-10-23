@@ -1,5 +1,6 @@
 node_modules/
 dist/
+*.AppImage
 *.log
 .DS_Store
 skills/wego-browser/learnings/
