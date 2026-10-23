@@ -34,6 +34,8 @@ All task-space methods take the numeric space `id` explicitly in `params`.
 ### Meta
 
 - `ping()` → `"pong"`
+- `focusWindow()` → `"focused."` — raise and focus the browser window (agents
+  can surface results without the user hunting for the window).
 - `getBrowserVersion()` → `{ currentVersion: string, updateAvailable: false }`
 - `listProfiles()` → `{ profiles: [{ id, name, isDefault }] }`
   - `Default` always exists and maps to the shared `persist:default` session
