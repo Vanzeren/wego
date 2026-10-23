@@ -15,11 +15,12 @@ best-effort.
 
 ## Later
 
-- Occluded (covered) tabs report `visibilityState: hidden`, so
-  IntersectionObserver-gated lazy content (e.g. bilibili's video player
-  element) never initializes while an agent's page is backgrounded. Options:
-  per-agent-space secondary window (ego-style), or a "bring to front
-  temporarily" automation step. Found during the real-site tour (S4).
+- Occluded (covered) tabs report `visibilityState: hidden`, and some sites
+  react badly to backgrounded or refocused media pages (observed: a bilibili
+  video URL redirected to the home page instead of initializing a player).
+  Lazy media (IntersectionObserver) may never initialize while backgrounded.
+  Options: per-agent-space secondary window (ego-style), or a "bring to front
+  temporarily" automation step. Found during the real-site tour (S4/S12).
 - ~~Chrome profile import~~ Done for cookies (`profiles import-chrome`):
   libsecret + KWallet key sources, v10/v11 decryption, host-hash strip,
   expired/SameSite=None handling, `--profile`/`--chrome-dir` targeting.

@@ -185,7 +185,7 @@ export function setupViews(ctx) {
     // before the new-tab page paints.
     const marker = `data:text/html,<!doctype html><style>html{background:%2317181c}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
     tab.targetIdReady = (async () => {
-      await wc.loadURL(marker);
+      await wc.loadURL(marker); // may reject if a racing goto aborts it
       const realId = await resolveCdpTargetId(marker, wc);
       ctx.spaces().noteTargetId(space.id, tab.targetId, realId);
       // Readiness covers the intended page too: bridge listTabs/createTab
@@ -194,6 +194,9 @@ export function setupViews(ctx) {
       if (!wc.isDestroyed()) await wc.loadURL(intended).catch(() => {});
       return realId;
     })();
+    // Handlers (awaitTargetId/whenTabsReady) attach later; silence the
+    // rejection window in between.
+    tab.targetIdReady.catch(() => {});
     return view;
   }
 
