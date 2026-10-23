@@ -27,7 +27,7 @@ export function setupFindbar(ctx) {
     view.setBackgroundColor('#00000000'); // transparent outside the card
     win.contentView.addChildView(view);
     view.webContents.loadFile(path.join(__dirname, 'renderer', 'findbar.html')).catch(() => {});
-    view.webContents.setZoomFactor(settings.uiZoom);
+    view.webContents.setZoomFactor(settings.get('uiZoom'));
     // First show() can beat findbar.html's onPrefill registration; deliver the
     // prefill once the page signals it is loaded instead.
     view.webContents.on('did-finish-load', () => {
@@ -38,7 +38,7 @@ export function setupFindbar(ctx) {
   }
 
   function bounds() {
-    const z = settings.uiZoom;
+    const z = settings.get('uiZoom');
     const [w] = win.getContentSize();
     const bw = Math.round(400 * z);
     const bh = Math.round(58 * z);
@@ -58,7 +58,7 @@ export function setupFindbar(ctx) {
     visible = true;
     view.setBounds(bounds());
     raise();
-    view.webContents.setZoomFactor(settings.uiZoom);
+    view.webContents.setZoomFactor(settings.get('uiZoom'));
     view.webContents.focus();
     if (loaded) view.webContents.send('findbar:prefill', text);
   }
@@ -94,7 +94,7 @@ export function setupFindbar(ctx) {
     clearText() { text = ''; },
     onZoomChanged() {
       if (!view) return;
-      view.webContents.setZoomFactor(settings.uiZoom);
+      view.webContents.setZoomFactor(settings.get('uiZoom'));
       if (visible) view.setBounds(bounds());
     },
     sendResult(result) {

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>settings</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #17181c;
+    --surface: #202127;
+    --surface-2: #26272e;
+    --hover: #2f313a;
+    --border: rgba(255, 255, 255, 0.08);
+    --text: #e6e6eb;
+    --muted: #9a9aa5;
+    --faint: #6d6d78;
+    --accent: #8f7bff;
+    --accent-dim: rgba(143, 123, 255, 0.16);
+    --danger: #e5484d;
+  }
+  html, body { height: 100%; background: transparent; }
+  body { padding: 2px; font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased; color: var(--text); user-select: none; }
+  #card { display: flex; flex-direction: column; height: 100%; border-radius: 10px;
+    background: rgba(32, 33, 39, 0.98); border: 1px solid var(--border);
+    box-shadow: 0 12px 32px rgba(0,0,0,.5); overflow: hidden; }
+  #card.enter { animation: card-in .18s cubic-bezier(.2,.8,.3,1) both; }
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(-8px) scale(.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { #card.enter { animation: none; } }
+  #head { display: flex; align-items: center; padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--border); }
+  #head h1 { flex: 1; font-size: 13px; font-weight: 600; }
+  #close { width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--muted); font-size: 13px; cursor: pointer; }
+  #close:hover { background: var(--hover); color: var(--text); }
+  #body { flex: 1; overflow-y: auto; padding: 6px 16px 14px; }
+  #body::-webkit-scrollbar { width: 6px; }
+  #body::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+  section { margin-top: 12px; }
+  section h2 { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--faint); margin-bottom: 8px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .row .label { flex: 1; color: var(--text); }
+  .row .hint { color: var(--faint); font-size: 11px; }
+  input[type="range"] { width: 180px; accent-color: var(--accent); }
+  .val { min-width: 34px; text-align: right; color: var(--muted); font-size: 12px;
+    font-variant-numeric: tabular-nums; }
+  select { height: 28px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text); padding: 0 8px; outline: none; font-size: 12px; }
+  select:focus { border-color: var(--accent); }
+  .radio { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer;
+    color: var(--muted); border-radius: 6px; }
+  .radio:hover { color: var(--text); }
+  .radio input { accent-color: var(--accent); }
+  .radio.on { color: var(--text); }
+  input[type="text"] { flex: 1; min-width: 0; height: 30px; border: 1px solid var(--border);
+    border-radius: 8px; background: #101116; color: var(--text); padding: 0 10px;
+    outline: none; font-size: 12px; }
+  input[type="text"]:focus { border-color: var(--accent); }
+  input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+  button.mini { height: 26px; border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--muted); padding: 0 10px; font-size: 12px;
+    cursor: pointer; transition: background .12s, color .12s; }
+  button.mini:hover { background: var(--hover); color: var(--text); }
+  #err { display: none; margin: 8px 16px 0; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--danger); color: var(--danger); font-size: 11px; }
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="head"><h1>设置</h1><button id="close" title="Close (Esc)">&#10005;</button></div>
+    <div id="err"></div>
+    <div id="body">
+      <section>
+        <h2>外观</h2>
+        <div class="row">
+          <span class="label">界面缩放</span>
+          <input id="uizoom" type="range" min="0.5" max="2" step="0.05">
+          <span class="val" id="uizoom-val"></span>
+        </div>
+        <div class="row">
+          <span class="label">页面缩放</span>
+          <select id="pagezoom"></select>
+        </div>
+      </section>
+      <section>
+        <h2>搜索</h2>
+        <div class="row"><span class="label">搜索引擎</span></div>
+        <div id="engines"></div>
+      </section>
+      <section>
+        <h2>文件</h2>
+        <div class="row">
+          <span class="label">下载目录</span>
+        </div>
+        <div class="row">
+          <input id="dldir" type="text" placeholder="默认 ~/Downloads" spellcheck="false">
+          <button class="mini" id="dlreset">恢复默认</button>
+        </div>
+      </section>
+      <section>
+        <h2>会话</h2>
+        <div class="row">
+          <input id="restore" type="checkbox">
+          <span class="label">启动时恢复上次会话</span>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script>
+    const $ = (s) => document.querySelector(s);
+    let current = null; // last settings:get response
+
+    function showError(msg) {
+      const el = $('#err');
+      el.textContent = msg || '';
+      el.style.display = msg ? 'block' : 'none';
+    }
+
+    async function save(key, value) {
+      const r = await window.wegoSettings.set(key, value);
+      if (r && r.ok) {
+        showError('');
+        if (r.values) render({ ...current, values: r.values });
+      } else {
+        showError((r && r.error) || '保存失败');
+        refresh(); // snap the control back to the stored value
+      }
+    }
+
+    function render(data) {
+      if (!data) return;
+      current = data;
+      const v = data.values;
+      $('#uizoom').value = v.uiZoom;
+      $('#uizoom-val').textContent = `${Math.round(v.uiZoom * 100)}%`;
+      const sel = $('#pagezoom');
+      if (!sel.options.length) {
+        for (let n = -3; n <= 5; n++) {
+          const o = document.createElement('option');
+          o.value = String(n);
+          o.textContent = n === 0 ? '默认 (0)' : (n > 0 ? `+${n}` : String(n));
+          sel.appendChild(o);
+        }
+      }
+      sel.value = String(v.pageZoomLevel);
+      const box = $('#engines');
+      box.textContent = '';
+      for (const e of data.engines) {
+        const label = document.createElement('label');
+        label.className = `radio${e.key === v.searchEngine ? ' on' : ''}`;
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = 'engine';
+        input.checked = e.key === v.searchEngine;
+        input.addEventListener('change', () => { if (input.checked) save('searchEngine', e.key); });
+        const name = document.createElement('span');
+        name.textContent = e.name;
+        label.append(input, name);
+        box.appendChild(label);
+      }
+      if (document.activeElement !== $('#dldir')) $('#dldir').value = v.downloadDir;
+      $('#restore').checked = v.restoreSession;
+    }
+
+    async function refresh() {
+      render(await window.wegoSettings.get());
+    }
+
+    $('#uizoom').addEventListener('input', (e) => {
+      $('#uizoom-val').textContent = `${Math.round(Number(e.target.value) * 100)}%`;
+    });
+    $('#uizoom').addEventListener('change', (e) => save('uiZoom', Number(e.target.value)));
+    $('#pagezoom').addEventListener('change', (e) => save('pageZoomLevel', Number(e.target.value)));
+    $('#dldir').addEventListener('change', (e) => save('downloadDir', e.target.value.trim()));
+    $('#dlreset').addEventListener('click', () => save('downloadDir', ''));
+    $('#restore').addEventListener('change', (e) => save('restoreSession', e.target.checked));
+    $('#close').addEventListener('click', () => window.wegoSettings.close());
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') window.wegoSettings.close();
+    });
+    window.wegoSettings.onShow(() => {
+      const card = $('#card');
+      card.classList.remove('enter');
+      void card.offsetWidth; // restart the open animation on every show
+      card.classList.add('enter');
+      showError('');
+      refresh();
+    });
+    refresh();
+  </script>
+</body>
+</html>

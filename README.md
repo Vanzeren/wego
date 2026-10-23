@@ -62,6 +62,10 @@ skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 - HiDPI zoom: `Ctrl +/-/0` page zoom (global: applies to all tabs and
   persists across navigations), `Ctrl+Shift +/-/0` whole-UI zoom; both persist
   (`~/.wego/settings.json`), also adjustable via the `appZoom` bridge method.
+- Settings panel (⚙ button or `Ctrl+,`): UI zoom, default page zoom, default
+  search engine (DuckDuckGo/Bing/Google/百度 — drives omnibox keyword
+  search), download directory, and session-restore toggle. Changes apply
+  instantly and persist to `~/.wego/settings.json`.
 
 - Task spaces: create / resume-by-name / claim / list, numeric ids, ownership
   (`user`/`agent`) and control state; user-control gating returns

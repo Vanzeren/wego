@@ -35,7 +35,7 @@ const SCROLLBAR_CSS = `
 `;
 
 export function setupViews(ctx) {
-  // ctx: { win, cdpServer, settings, applyZoom, toggleFindbar,
+  // ctx: { win, cdpServer, settings, applyZoom, toggleFindbar, toggleSettings,
   //        activeTabWc(), findbar: { isVisible(), view() }, spaces() }
   const { win, settings } = ctx;
 
@@ -52,7 +52,8 @@ export function setupViews(ctx) {
     if (wiredSessions.has(wc.session)) return;
     wiredSessions.add(wc.session);
     wc.session.on('will-download', (_e, item) => {
-      const dir = path.join(process.env.HOME || '/tmp', 'Downloads');
+      // Settings downloadDir '' = default ~/Downloads.
+      const dir = settings.get('downloadDir') || path.join(process.env.HOME || '/tmp', 'Downloads');
       fs.mkdirSync(dir, { recursive: true });
       // Defense-in-depth: strip any path components from the suggested name
       // (Chromium already does) and fall back when nothing usable remains.
@@ -87,6 +88,13 @@ export function setupViews(ctx) {
         event.preventDefault();
         return;
       }
+      // Ctrl+,: toggle the settings panel regardless of focus.
+      if (input.type === 'keyDown' && input.control && !input.shift && !input.alt && !input.meta
+          && input.key === ',') {
+        ctx.toggleSettings();
+        event.preventDefault();
+        return;
+      }
       const z = zoomFromKey(input);
       if (!z) return;
       ctx.applyZoom(z.scope, z.dir);
@@ -100,10 +108,10 @@ export function setupViews(ctx) {
     // per-origin zoom memory never diverges from the user's setting. Skip at
     // the default: applying a zoom forces a layout recompute that can race
     // the first click on fresh tabs.
-    if (settings.pageZoomLevel !== 0) wc.setZoomLevel(settings.pageZoomLevel);
+    if (settings.get('pageZoomLevel') !== 0) wc.setZoomLevel(settings.get('pageZoomLevel'));
     wc.on('did-navigate', () => {
-      if (!wc.isDestroyed() && wc.getZoomLevel() !== settings.pageZoomLevel) {
-        wc.setZoomLevel(settings.pageZoomLevel);
+      if (!wc.isDestroyed() && wc.getZoomLevel() !== settings.get('pageZoomLevel')) {
+        wc.setZoomLevel(settings.get('pageZoomLevel'));
       }
     });
     wireInput(wc);

@@ -1,16 +1,45 @@
+import { SEARCH_ENGINES, DEFAULTS } from './settings.js';
+
 // Renderer IPC: the ui:action dispatch table. Meta operations (window chrome,
 // find bar, space management) are never gated by space control; tab mutations
 // require the active space to be user-controlled.
 export function setupIpc(ctx, ipcMain) {
-  // ctx: { win, spaces(), activeTabWc(), findbar, pushState() }
+  // ctx: { win, spaces(), activeTabWc(), findbar, settingsView, settings, pushState() }
   let findText = '';
 
-  // Only the chrome page and the find-bar view may dispatch ui:action.
+  // Only the chrome page and the overlay views (find bar, settings) may
+  // dispatch ui:action.
   function isTrustedSender(event) {
     if (event.sender === ctx.win.webContents) return true;
     const fb = ctx.findbar?.view?.();
-    return !!fb && !fb.webContents.isDestroyed() && event.sender === fb.webContents;
+    if (fb && !fb.webContents.isDestroyed() && event.sender === fb.webContents) return true;
+    return isSettingsSender(event);
   }
+
+  // The settings:get/set channels are restricted to the settings view only.
+  function isSettingsSender(event) {
+    const sv = ctx.settingsView?.view?.();
+    return !!sv && !sv.webContents.isDestroyed() && event.sender === sv.webContents;
+  }
+
+  ipcMain.handle('settings:get', (event) => {
+    if (!isSettingsSender(event)) return null;
+    return {
+      values: ctx.settings.all(),
+      engines: Object.entries(SEARCH_ENGINES).map(([key, e]) => ({ key, name: e.name })),
+      defaults: { ...DEFAULTS },
+    };
+  });
+
+  ipcMain.handle('settings:set', (event, key, value) => {
+    if (!isSettingsSender(event)) return { ok: false, error: 'untrusted sender' };
+    try {
+      ctx.settings.set(key, value);
+      return { ok: true, values: ctx.settings.all() };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
 
   // A click can race a tab's demise; a stale targetId (WEGO_INVALID_ARGUMENT)
   // must no-op instead of rejecting the handle promise (ui.js never catches).
@@ -51,6 +80,8 @@ export function setupIpc(ctx, ipcMain) {
         break;
       // Find bar: meta operation over the active tab, never gated.
       case 'findToggle': ctx.findbar.toggle(); break;
+      // Settings panel: meta operation, never gated.
+      case 'settingsToggle': ctx.settingsView.toggle(); break;
       case 'find':
         findText = typeof msg.text === 'string' ? msg.text : '';
         ctx.findbar.setText(findText);

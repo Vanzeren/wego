@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { SpaceManager } from './spaces.js';
 import { nextZoom, nextZoomLevel } from './zoom.js';
 import { createPersistence } from './persistence.js';
+import { createSettings, SEARCH_ENGINES } from './settings.js';
 import { setupViews } from './views.js';
 import { setupFindbar } from './findbar.js';
+import { setupSettingsView } from './settings-view.js';
 import { setupIpc } from './ipc.js';
 import { VirtualCdpServer } from './cdp-server.js';
 
@@ -20,7 +22,12 @@ const SIDEBAR_WIDTH = 200;
 
 export function createMainWindow({ stateDir } = {}) {
   const persistence = createPersistence({ stateDir });
-  const settings = persistence.loadSettings({ uiZoom: 1, pageZoomLevel: 0 });
+  // Single source of truth for preferences; onChange applies side effects
+  // and repushes chrome state (defined below, late-bound like the rest).
+  const settings = createSettings({
+    persistence,
+    onChange: (key, value) => onSettingsChanged(key, value),
+  });
 
   const win = new BrowserWindow({
     width: 1400,
@@ -54,6 +61,7 @@ export function createMainWindow({ stateDir } = {}) {
       return wc && !wc.isDestroyed() ? wc : null;
     },
     chromeHeight: () => CHROME_HEIGHT,
+    sidebarWidth: () => SIDEBAR_WIDTH,
     initialViewBounds: (space) => space && space.ownership === 'agent'
       ? { x: 0, y: 0, width: 1400, height: 900 }
       : { x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 },
@@ -64,26 +72,16 @@ export function createMainWindow({ stateDir } = {}) {
   const zoomGlue = {
     applyZoom(scope, dir) {
       if (scope === 'ui') {
-        settings.uiZoom = nextZoom(settings.uiZoom, dir);
-        win.webContents.setZoomFactor(settings.uiZoom);
-        findbar.onZoomChanged();
-        layoutViews(); // chrome geometry changed; re-place the views
+        settings.set('uiZoom', nextZoom(settings.get('uiZoom'), dir));
       } else {
         const tab = ctx.activeTabWc();
         if (!tab) return null;
         // Global page zoom: apply to every existing tab and force-apply on
         // every navigation (see views.js), overriding Chromium's per-origin
         // zoom memory.
-        settings.pageZoomLevel = nextZoomLevel(tab.getZoomLevel(), dir);
-        for (const space of spaces.allSpaces()) {
-          for (const t of space.tabs) {
-            const wc = t.view?.webContents;
-            if (wc && !wc.isDestroyed()) wc.setZoomLevel(settings.pageZoomLevel);
-          }
-        }
+        settings.set('pageZoomLevel', nextZoomLevel(tab.getZoomLevel(), dir));
       }
-      persistence.saveSettings(settings);
-      return { uiZoom: settings.uiZoom, pageZoomLevel: settings.pageZoomLevel };
+      return { uiZoom: settings.get('uiZoom'), pageZoomLevel: settings.get('pageZoomLevel') };
     },
   };
   ctx.applyZoom = zoomGlue.applyZoom;
@@ -92,6 +90,9 @@ export function createMainWindow({ stateDir } = {}) {
   const findbar = setupFindbar(ctx);
   ctx.findbar = findbar;
   ctx.toggleFindbar = findbar.toggle;
+  const settingsView = setupSettingsView(ctx);
+  ctx.settingsView = settingsView;
+  ctx.toggleSettings = settingsView.toggle;
 
   const spaces = new SpaceManager({ createView: views.createView, destroyView: views.destroyView });
 
@@ -122,6 +123,26 @@ export function createMainWindow({ stateDir } = {}) {
   ctx.cdpServer = cdpServer;
   spaces.on('spaceChanged', () => cdpServer.notifyTargetsChanged());
 
+  // Settings side effects, applied immediately on every change. Late-bound
+  // refs (findbar/settingsView/spaces) are only touched at runtime, after
+  // all modules are up.
+  function onSettingsChanged(key, value) {
+    if (key === 'uiZoom') {
+      win.webContents.setZoomFactor(value);
+      findbar.onZoomChanged();
+      settingsView.onZoomChanged();
+      layoutViews(); // chrome geometry changed; re-place the views
+    } else if (key === 'pageZoomLevel') {
+      for (const space of spaces.allSpaces()) {
+        for (const t of space.tabs) {
+          const wc = t.view?.webContents;
+          if (wc && !wc.isDestroyed()) wc.setZoomLevel(value);
+        }
+      }
+    }
+    pushState();
+  }
+
   // ---- layout: stacked views, active tab raised --------------------------
 
   // Skip redundant setBounds: layoutViews runs on every spaceChanged (every
@@ -136,8 +157,8 @@ export function createMainWindow({ stateDir } = {}) {
     const [w, h] = win.getContentSize();
     // The chrome UI lives in the (zoomed) chrome page: its 200px sidebar
     // and 84px bars occupy 200·uiZoom / 84·uiZoom window pixels.
-    const offX = Math.round(SIDEBAR_WIDTH * settings.uiZoom);
-    const offY = Math.round(CHROME_HEIGHT * settings.uiZoom);
+    const offX = Math.round(SIDEBAR_WIDTH * settings.get('uiZoom'));
+    const offY = Math.round(CHROME_HEIGHT * settings.get('uiZoom'));
     const bounds = {
       x: offX,
       y: offY,
@@ -175,6 +196,11 @@ export function createMainWindow({ stateDir } = {}) {
       findbar.raise();
       findbar.view().setBounds(findbar.bounds()); // track resize/zoom
     }
+    // the settings card floats above everything else
+    if (settingsView.isVisible() && settingsView.view()) {
+      settingsView.raise();
+      settingsView.view().setBounds(settingsView.bounds()); // track resize/zoom
+    }
     // tab actually switched in the main window: close find selection
     if (currentTop !== prevMainTop && findbar.isVisible()) {
       findbar.hide();
@@ -186,7 +212,12 @@ export function createMainWindow({ stateDir } = {}) {
     if (!win.isDestroyed()) {
       const wc = ctx.activeTabWc();
       const nav = { back: wc?.canGoBack() ?? false, forward: wc?.canGoForward() ?? false };
-      win.webContents.send('state', { ...spaces.serializeAll(), nav });
+      const engine = SEARCH_ENGINES[settings.get('searchEngine')] ?? SEARCH_ENGINES.duckduckgo;
+      win.webContents.send('state', {
+        ...spaces.serializeAll(),
+        nav,
+        settings: { ...settings.all(), searchUrlTemplate: engine.url },
+      });
     }
   }
 
@@ -197,9 +228,11 @@ export function createMainWindow({ stateDir } = {}) {
   setupIpc(ctx, ipcMain);
   views.wireInput(win.webContents);
 
-  // Restore spaces from the previous run; fall back to a fresh Personal space.
+  // Restore spaces from the previous run (unless disabled in settings);
+  // fall back to a fresh Personal space. Spaces keep persisting either way,
+  // so re-enabling the setting restores them next launch.
   let restored = false;
-  const savedSpaces = persistence.loadSpaces();
+  const savedSpaces = settings.get('restoreSession') ? persistence.loadSpaces() : null;
   if (savedSpaces) {
     try { restored = spaces.restoreState(savedSpaces); } catch { restored = false; }
   }
@@ -209,7 +242,7 @@ export function createMainWindow({ stateDir } = {}) {
   }
 
   win.webContents.on('did-finish-load', () => {
-    if (settings.uiZoom !== 1) win.webContents.setZoomFactor(settings.uiZoom);
+    if (settings.get('uiZoom') !== 1) win.webContents.setZoomFactor(settings.get('uiZoom'));
     pushState();
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));

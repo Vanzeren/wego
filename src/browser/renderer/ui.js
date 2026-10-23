@@ -230,7 +230,11 @@ function navigate(raw) {
   let url;
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(v)) url = v;
   else if (/^\S+\.\S+$/.test(v)) url = `https://${v}`;
-  else url = `https://duckduckgo.com/?q=${encodeURIComponent(v)}`;
+  else {
+    // Search engine comes from the pushed state (settings.searchUrlTemplate).
+    const tpl = state.settings?.searchUrlTemplate ?? 'https://duckduckgo.com/?q=%s';
+    url = tpl.replace('%s', encodeURIComponent(v));
+  }
   window.ego.action('navigate', { url });
 }
 
@@ -257,6 +261,7 @@ $('#omnibox').addEventListener('keydown', (e) => {
 $('#takeover').addEventListener('click', () => window.ego.action('takeover'));
 $('#handback').addEventListener('click', () => window.ego.action('handback'));
 $('#winmin').addEventListener('click', () => window.ego.action('winControl', { op: 'minimize' }));
+$('#settingsbtn').addEventListener('click', () => window.ego.action('settingsToggle'));
 $('#winmax').addEventListener('click', () => window.ego.action('winControl', { op: 'maximize' }));
 $('#winc').addEventListener('click', () => window.ego.action('winControl', { op: 'close' }));
 

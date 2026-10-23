@@ -66,6 +66,9 @@ Electron instances: the app holds a single-instance lock. `pkill -f
 - `src/browser/ipc.js` — `ui:action` dispatch table (gating rules live here).
 - `src/browser/persistence.js` — `settings.json`/`spaces.json` (electron-free,
   unit-testable).
+- `src/browser/settings.js` — preferences: validated single source of truth
+  (electron-free); `src/browser/settings-view.js` — settings panel overlay
+  (own WebContentsView, find-bar pattern, `Ctrl+,` / navbar gear).
 - `src/browser/spaces.js` — SpaceManager state machine (pure, no electron).
 - `src/browser/bridge.js` — bridge socket server; `src/browser/cdp-server.js` —
   virtual CDP endpoint (raw CDP tunnel, refcounted webContents.debugger);
