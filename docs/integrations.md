@@ -76,19 +76,33 @@ async with async_playwright() as p:
     await browser.close()
 ```
 
-## 4. browser-use — not yet compatible (verified)
+## 4. browser-use — fixed by upstream PR (pending merge)
 
-browser-use's tab watchdogs assume a standard Chromium target list. wego's
-chrome UI is itself a `file://` page target, and browser-use's
-SecurityWatchdog **closes it** (taking the whole browser down); with
-`disable_security=True` its SessionManager focus-recovery still loops
-against the chrome page until the CDP connection dies. Verified failing in
-all three modes (default, `disable_security`, `is_local=False`) on
-browser-use from 2026-10 (pip latest).
+browser-use's tab watchdogs assume a standard Chromium target list and
+used to close wego's `file://` chrome page (fatal) and focus it (broken).
+We fixed it upstream: [browser-use/browser-use#6192](https://github.com/browser-use/browser-use/pull/6192)
+(verified live against wego: default security mode, navigation works).
 
-This is fixable on their side (ignore — not close — non-http(s) targets).
-Tracked upstream: [browser-use/browser-use#6191](https://github.com/browser-use/browser-use/issues/6191).
-The Playwright path above and wego's own SDK work today.
+Until that PR merges and is released, install the patched fork:
+
+```bash
+pip install "git+https://github.com/Vanzeren/browser-use@fix/electron-chrome-targets"
+```
+
+Then connect to wego's endpoint as usual:
+
+```python
+from browser_use import Agent, Browser, ChatOpenAI
+
+browser = Browser(cdp_url="http://127.0.0.1:9222")  # default security mode works
+agent = Agent(
+    task="Summarize the first 3 unread emails in my inbox",
+    browser=browser,
+    llm=ChatOpenAI(model="gpt-4o"),  # bring your own LLM key
+)
+```
+
+(Launch wego with `WEGO_DEBUG_PORT=9222` first — see section 1.)
 
 ## Which one should I pick?
 
