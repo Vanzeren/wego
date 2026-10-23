@@ -70,10 +70,19 @@ function bridgeRequest(method, params = {}, timeoutMs = 5000) {
   });
 }
 
+// Electron binary resolution: explicit env override → repo-local devDependency
+// (npm ci gives a pinned, reproducible Electron) → PATH fallback.
+function resolveElectron() {
+  if (process.env.WEGO_ELECTRON) return process.env.WEGO_ELECTRON;
+  const local = path.join(repoRoot, 'node_modules', 'electron', 'dist', 'electron');
+  if (fs.existsSync(local)) return local;
+  return 'electron';
+}
+
 // Start the browser if the bridge is unreachable, wait for readiness.
 async function ensureBrowser() {
   if (await probeSocket(socketPath())) return;
-  const electron = process.env.WEGO_ELECTRON || 'electron';
+  const electron = resolveElectron();
   const child = spawn(electron, [repoRoot], {
     detached: true,
     stdio: 'ignore',
@@ -236,7 +245,7 @@ async function cmdDoctor() {
   const [major] = process.versions.node.split('.').map(Number);
   report(major >= 22, 'node >= 22', `node ${process.versions.node}`);
 
-  const electron = process.env.WEGO_ELECTRON || 'electron';
+  const electron = resolveElectron();
   try {
     const { stdout } = await execFileP(electron, ['--version']);
     report(true, 'electron binary resolvable', stdout.trim());
