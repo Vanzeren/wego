@@ -79,6 +79,21 @@ The agent skill lives in `skills/wego-browser/` (install it into your agent's
 skills directory); `skill-body/SKILL.md` is the versioned usage guide that
 `wego-browser skill` prints.
 
+## Use with Playwright / other CDP clients
+
+Already have automation code? Drive wego from Playwright — your logged-in
+session, no cookie exports:
+
+```js
+const browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
+const page = browser.contexts()[0].pages()[0]; // your existing, logged-in tab
+await page.goto('https://example.com');
+```
+
+Launch wego with `WEGO_DEBUG_PORT=9222` first (single-user machines only).
+Full guide, Python variant, and browser-use compatibility status:
+[docs/integrations.md](docs/integrations.md).
+
 ## What works (verified end-to-end on Wayland/KDE)
 
 - Frameless window with custom min/max/close controls; drag the chrome
