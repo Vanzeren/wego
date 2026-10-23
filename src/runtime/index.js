@@ -4,6 +4,8 @@
 import { connectWego } from '../client/wego.js';
 import { CDPManager, CDPError } from './cdp.js';
 import { TaskSpace } from './task-space.js';
+import { learningsDir, readLearningNotes, hostOf } from './learning.js';
+import fs from 'node:fs';
 
 const HELP = {
   'taskSpace': 'taskSpace(nameOrId) → TaskSpace — name: create-or-resume; numeric id: select existing agent-owned space',
@@ -100,7 +102,21 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
     return ego.listTaskSpaces();
   }
 
-  const helpers = { taskSpace, listTaskSpaces, claimTaskSpace, takeOverTaskSpace, help, cliLog };
+  // Site learnings: reusable per-site automation notes.
+  function learnContext(urlOrHost) {
+    if (urlOrHost === undefined) {
+      const dir = learningsDir();
+      let sites;
+      try { sites = fs.readdirSync(dir); } catch { sites = []; }
+      cliLog(sites.length ? `learnings: ${sites.join(', ')}` : 'no site learnings yet');
+      return;
+    }
+    const host = hostOf(urlOrHost) ?? urlOrHost;
+    const notes = readLearningNotes(host);
+    cliLog(notes ?? `no learning for ${host}`);
+  }
+
+  const helpers = { taskSpace, listTaskSpaces, claimTaskSpace, takeOverTaskSpace, help, cliLog, learnContext };
   const names = Object.keys(helpers);
 
   let exitCode = 0;

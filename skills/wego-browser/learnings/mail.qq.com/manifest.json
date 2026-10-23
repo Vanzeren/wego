@@ -1,0 +1,5 @@
+{
+  "site": "mail.qq.com",
+  "domains": ["mail.qq.com", "wx.mail.qq.com"],
+  "notes": ["notes/compose.md"]
+}

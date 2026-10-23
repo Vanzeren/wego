@@ -12,6 +12,7 @@ import { resolveTarget } from './selectors.js';
 import { parseKeySpec, pressKey, mouseEvent, MOUSE_BUTTONS } from './input.js';
 import { Download, FileChooser } from './driver/files.js';
 import { buildMouse, buildKeyboard } from './driver/namespaces.js';
+import { findLearning, hostOf } from './learning.js';
 import { CDPError } from './cdp.js';
 
 const DEFAULT_TIMEOUT = 30_000;
@@ -41,6 +42,8 @@ function withTimeout(promise, ms, what) {
 // ---------------------------------------------------------------- Page
 
 export class Page {
+  static _learnHinted = new Set(); // hosts already hinted this process
+
   constructor(space, label, targetId, openedBy) {
     this.space = space;
     this.label = label;
@@ -171,6 +174,12 @@ export class Page {
     const session = await this._session();
     await session.send('Page.navigate', { url }, { timeout });
     await this.waitForLoadState(waitUntil, { timeout });
+    // Surfacing accumulated site experience exactly when it becomes relevant.
+    const host = hostOf(await this.url().catch(() => url) ?? url);
+    if (host && findLearning(host) && !Page._learnHinted.has(host)) {
+      Page._learnHinted.add(host);
+      console.log(`[wego-learn] notes available for ${host} — run learnContext("${host}")`);
+    }
   }
 
   async reload({ timeout = DEFAULT_TIMEOUT } = {}) {

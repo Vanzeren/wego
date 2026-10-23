@@ -305,6 +305,22 @@ await page.acceptDialog("prompt response");
 // Or: await page.dismissDialog();
 ```
 
+## Site learnings (experience that accumulates)
+
+Hard-won per-site playbooks live in `skills/wego-browser/learnings/<site>/`.
+When `page.goto()` lands on a host with a learning, the script prints
+`[wego-learn] notes available for <host>` — read them before acting:
+
+```js
+learnContext("mail.qq.com"); // print the site's notes
+learnContext();              // list sites that have learnings
+```
+
+When a task on a site required non-obvious workarounds (custom widgets,
+shadow DOM traps, anti-automation quirks), record what worked as a new note
+under that site's `notes/` and register it in `manifest.json` — the next task
+on the site gets it for free.
+
 ## User control and completion
 
 Stop when the user takes control or the space is inactive. Do not retry or
