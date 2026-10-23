@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Lazy IO fixture</title></head>
+<body>
+<p id="state">not-initialized</p>
+<div id="lazy-anchor" style="margin-top: 5px; height: 50px; background: #eee">anchor</div>
+<script>
+  // IntersectionObserver-gated init, like lazy media players
+  const io = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      document.getElementById('state').textContent = 'initialized';
+    }
+  });
+  io.observe(document.getElementById('lazy-anchor'));
+  window.__visLog = [];
+  document.addEventListener('visibilitychange', () => window.__visLog.push(document.visibilityState));
+</script>
+</body></html>
