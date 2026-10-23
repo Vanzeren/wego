@@ -177,6 +177,7 @@ export function setupViews(ctx) {
     // the area fills with this color — white here reads as a jarring flash.
     view.setBackgroundColor('#17181c');
     const host = ctx.windowFor(space);
+    tab._win = host; // views stay in the window they were created in
     host.contentView.addChildView(view);
     // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
     // until the view has been RE-ATTACHED once (remove+add rebinds its input
@@ -203,31 +204,14 @@ export function setupViews(ctx) {
       // await this promise, so a racing SDK goto can never be clobbered by a
       // late new-tab-page load.
       if (!wc.isDestroyed()) await wc.loadURL(intended).catch(() => {});
-      // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
-      // until the view has painted a frame while on top. Re-attach after the
-      // first content load, then re-cover on that paint — one dark frame.
-      if (space.ownership === 'agent' && !wc.isDestroyed()) {
-        try {
-          host.contentView.removeChildView(view);
-          host.contentView.addChildView(view); // on top, one frame
-          await new Promise((resolve) => {
-            wc.once('paint', resolve);
-            setTimeout(resolve, 500); // never block readiness on paint
-          });
-        } catch { /* re-attach raced */ }
-        try { view.setBackgroundColor('#17181c'); } catch { /* gone */ }
-      }
+      // No priming needed: agent views live in a composited (shown) second
+      // window, so their input pipeline is live from the start.
       ctx.layoutViews(); // correct z-order / re-cover
       return realId;
     })();
     // Handlers (awaitTargetId/whenTabsReady) attach later; silence the
     // rejection window in between.
     tab.targetIdReady.catch(() => {});
-    // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
-    // until the view has painted a frame while on top. Re-attach at full size
-    // with a TRANSPARENT background so the priming frame is invisible, then
-    // re-cover on first paint and restore the dark background.
-    view.setBackgroundColor('#00000000');
     return view;
   }
 

@@ -35,11 +35,32 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     },
   });
 
-  // Hidden-window hosting was tried and dropped: views in a never-shown
-  // window never composite, and CDP mouse input is silently dropped for them
-  // too. Single window + compositor priming (views.js) instead.
+  // Agent-space views live in a SECOND window: shown (so Chromium composites
+  // it and CDP input works — input is silently dropped for views that are
+  // detached, covered, or in unmapped windows), but inactive, off-taskbar,
+  // and re-covered by the main window immediately. On Wayland/KWin a mapped
+  // background window stays compositor-visible.
+  let agentWin = null;
+  function getAgentWin() {
+    if (agentWin) return agentWin;
+    agentWin = new BrowserWindow({
+      width: 1400,
+      height: 900,
+      show: false,
+      skipTaskbar: true,
+      frame: false,
+      backgroundColor: '#17181c',
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    const [x, y] = win.getPosition();
+    agentWin.setPosition(x, y + 40); // slightly offset; main re-raised below
+    agentWin.showInactive();
+    if (!win.isDestroyed()) win.focus(); // keep the user's window in front
+    return agentWin;
+  }
+
   function windowFor(space) {
-    return win; // single window; see compositor priming in views.js
+    return space.ownership === 'agent' ? getAgentWin() : win;
   }
 
   // Shared context, late-bound as modules come up.
@@ -49,6 +70,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     httpEndpoint,
     downloads: new Map(), // url → { savePath, filename, state } (views.js fills)
     windowFor,
+    primingCount: 0, // >0 while a new view is on top for compositor priming
     spaces: () => spaces,
     activeTabWc: () => {
       const space = spaces.getActive();
@@ -113,6 +135,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   // navigation/title update), but the bounds only change on resize/zoom.
   const lastBounds = new WeakMap();
   let currentTop = null;
+  let currentAgentTop = null;
 
   // Lay out one window: every view of its spaces at full bounds, the active
   // tab raised; self-healing z-order (addChildView puts new views on top).
@@ -146,19 +169,30 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     if (!top) return;
     const children = targetWin.contentView.children;
     const isOnTop = children.length > 0 && children[children.length - 1] === top;
-    if (!isOnTop || top !== currentTop) {
+    const memo = targetWin === win ? currentTop : currentAgentTop;
+    if (!isOnTop || top !== memo) {
       try {
         targetWin.contentView.removeChildView(top); // re-add => top of z-order
         targetWin.contentView.addChildView(top);
       } catch { /* view race */ }
     }
-    currentTop = top;
+    if (targetWin === win) currentTop = top; else currentAgentTop = top;
   }
 
   function layoutViews() {
     if (win.isDestroyed()) return;
     const prevMainTop = currentTop;
-    layoutWindow(win, spaces.allSpaces(), spaces.getActive());
+    // Views live in the window they were created in (tab._win), which may
+    // differ from the space's current ownership after a claim.
+    const mainSpaces = spaces.allSpaces().filter((s) => s.tabs.some((t) => t._win === win));
+    const agentSpaces = agentWin ? spaces.allSpaces().filter((s) => s.tabs.some((t) => t._win === agentWin)) : [];
+    const active = spaces.getActive();
+    const activeInMain = active && active.tabs.some((t) => t._win === win) ? active : null;
+    layoutWindow(win, mainSpaces, activeInMain ?? mainSpaces[0] ?? null);
+    if (agentWin) {
+      const activeInAgent = active && active.tabs.some((t) => t._win === agentWin) ? active : null;
+      layoutWindow(agentWin, agentSpaces, activeInAgent ?? agentSpaces[agentSpaces.length - 1] ?? null);
+    }
     // the findbar floats above page content in the main window
     if (findbar.isVisible() && findbar.view()) {
       findbar.raise();
