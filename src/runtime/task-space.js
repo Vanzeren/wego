@@ -103,10 +103,7 @@ export class TaskSpace {
     const p = this._pages.get(label);
     if (!p) throw new CDPError(`No page with label ${JSON.stringify(label)}`, 'WEGO_OPERATION_FAILED');
     // detach our CDP session but leave the tab alive for the user
-    const session = this._ctx.cdp.sessionFor(p.targetId);
-    if (session) {
-      await this._ctx.cdp.browser.send('Target.detachFromTarget', { sessionId: session.sessionId }).catch(() => {});
-    }
+    this._ctx.cdp.detach(p.targetId);
     this._removePage(label);
   }
 
@@ -140,10 +137,7 @@ export class TaskSpace {
     const keepSet = new Set(keep);
     for (const [label, p] of [...this._pages]) {
       if (keepSet.has(label)) {
-        const session = this._ctx.cdp.sessionFor(p.targetId);
-        if (session) {
-          await this._ctx.cdp.browser.send('Target.detachFromTarget', { sessionId: session.sessionId }).catch(() => {});
-        }
+        this._ctx.cdp.detach(p.targetId);
         this._removePage(label);
       } else {
         await ego._call('closeTab', { id: this.spaceId, targetId: p.targetId }).catch(() => {});

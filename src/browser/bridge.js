@@ -96,9 +96,25 @@ export async function startBridgeServer({ spaces, windowApi, cdpServer }) {
 
   const clients = new Set();
 
+  // A client that stops reading would otherwise buffer NDJSON output in the
+  // socket without bound. Past 32 MiB queued, kill the connection — the
+  // close path cleans up its virtual CDP client too.
+  const MAX_BUFFERED_BYTES = 32 * 1024 * 1024;
+  const backpressureLogged = new WeakSet();
+  function guardedWrite(socket, line) {
+    socket.write(line);
+    if (socket.writableLength > MAX_BUFFERED_BYTES) {
+      if (!backpressureLogged.has(socket)) {
+        backpressureLogged.add(socket);
+        console.error('[bridge] client output buffer exceeded 32 MiB; destroying connection');
+      }
+      socket.destroy();
+    }
+  }
+
   function broadcast(obj) {
     const line = `${JSON.stringify(obj)}\n`;
-    for (const c of clients) c.write(line);
+    for (const c of clients) guardedWrite(c, line);
   }
 
   // Chatty pages fire spaceChanged per navigation/title update; coalesce
@@ -362,7 +378,7 @@ export async function startBridgeServer({ spaces, windowApi, cdpServer }) {
     let client = cdpClients.get(socket);
     if (!client) {
       client = cdpServer.openClient((message) => {
-        try { socket.write(`${JSON.stringify({ event: 'cdp', message })}\n`); } catch { /* socket gone */ }
+        try { guardedWrite(socket, `${JSON.stringify({ event: 'cdp', message })}\n`); } catch { /* socket gone */ }
       });
       cdpClients.set(socket, client);
     }
@@ -384,9 +400,9 @@ export async function startBridgeServer({ spaces, windowApi, cdpServer }) {
         throw bad('params must be an object');
       }
       const result = await dispatch[method](params ?? {}, socket);
-      socket.write(`${JSON.stringify({ id, result })}\n`);
+      guardedWrite(socket, `${JSON.stringify({ id, result })}\n`);
     } catch (e) {
-      socket.write(`${JSON.stringify({
+      guardedWrite(socket, `${JSON.stringify({
         id,
         error: { message: e?.message ?? String(e), error_code: e?.error_code ?? 'WEGO_OPERATION_FAILED' },
       })}\n`);

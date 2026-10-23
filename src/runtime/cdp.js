@@ -86,6 +86,10 @@ export class CDPManager {
     this._browser = new CDPSession(this, undefined, undefined);
     this._disposed = false;
     this._reattaching = new Set();
+    this._attaching = new Map(); // targetId -> in-flight attach promise
+    // Detach notifications that arrive in the same message chunk as the
+    // attach response they refer to (continuation hasn't run yet).
+    this._pendingDetaches = new Set();
 
     ego.onCDPMessage = (raw) => this._onMessage(raw);
     ego.onSendCDPMessageError = (message, error_code) => {
@@ -115,7 +119,14 @@ export class CDPManager {
     if (msg.method === 'Target.detachedFromTarget') {
       const sid = msg.params?.sessionId;
       const s = sid && this._sessions.get(sid);
-      if (s) this._handleDetached(s);
+      if (s) {
+        this._handleDetached(s);
+      } else if (sid) {
+        // detach raced the attach continuation: park it so attach() can
+        // tear the session down as soon as it registers.
+        if (this._pendingDetaches.size >= 128) this._pendingDetaches.delete(this._pendingDetaches.values().next().value);
+        this._pendingDetaches.add(sid);
+      }
       return;
     }
     if (session) session._dispatchEvent(msg.method, msg.params);
@@ -127,9 +138,12 @@ export class CDPManager {
     if (this._disposed) return;
     const targetId = session.targetId;
     this._sessions.delete(session.sessionId);
+    // Commands already in flight were sent on the dead session — their
+    // responses will never arrive, so fail them now instead of letting
+    // callers hang until the 30s timeout.
+    session.detached = true;
+    session._failAll('CDP session detached');
     if (this._reattaching.has(targetId)) {
-      session.detached = true;
-      session._failAll('CDP session detached');
       this._byTarget.delete(targetId);
       return;
     }
@@ -137,12 +151,17 @@ export class CDPManager {
     (async () => {
       try {
         const { sessionId } = await this._browser.send('Target.attachToTarget', { targetId, flatten: true });
-        // keep session identity: pending commands and listeners survive
-        this._sessions.set(sessionId, session);
+        // keep session identity: listeners survive; a fresh sessionId means
+        // all enabled domains/setup state is gone and must be re-armed.
         session.sessionId = sessionId;
+        session.detached = false;
+        this._sessions.set(sessionId, session);
+        if (this._pendingDetaches.delete(sessionId)) {
+          this._handleDetached(session);
+          return;
+        }
+        session._dispatchEvent('wego:reattached', {});
       } catch {
-        session.detached = true;
-        session._failAll('CDP session detached');
         this._byTarget.delete(targetId);
       } finally {
         this._reattaching.delete(targetId);
@@ -152,13 +171,45 @@ export class CDPManager {
 
   // attach(targetId) → page-level session
   async attach(targetId) {
+    // Popup adoption and waitForEvent('popup') rely on Target.targetCreated
+    // pushes, which only flow after setDiscoverTargets. Arm once, lazily, so
+    // every client process subscribes before its first attach.
+    if (!this._discoveryArmed && !this._disposed) {
+      this._discoveryArmed = true;
+      this._browser.send('Target.setDiscoverTargets', { discover: true }).catch(() => { this._discoveryArmed = false; });
+    }
     const existing = this._byTarget.get(targetId);
     if (existing && !existing.detached) return existing;
-    const { sessionId } = await this._browser.send('Target.attachToTarget', { targetId, flatten: true });
-    const session = new CDPSession(this, sessionId, targetId);
-    this._sessions.set(sessionId, session);
-    this._byTarget.set(targetId, session);
-    return session;
+    const inFlight = this._attaching.get(targetId);
+    if (inFlight) return inFlight;
+    const p = (async () => {
+      const { sessionId } = await this._browser.send('Target.attachToTarget', { targetId, flatten: true });
+      const session = new CDPSession(this, sessionId, targetId);
+      this._sessions.set(sessionId, session);
+      this._byTarget.set(targetId, session);
+      if (this._pendingDetaches.delete(sessionId)) this._handleDetached(session);
+      return session;
+    })();
+    this._attaching.set(targetId, p);
+    try {
+      return await p;
+    } finally {
+      this._attaching.delete(targetId);
+    }
+  }
+
+  // Self-initiated detach: tell the browser (best effort) and drop all local
+  // bookkeeping so the target can't be resurrected through stale maps.
+  detach(targetId) {
+    const session = this._byTarget.get(targetId);
+    if (!session) return;
+    this._byTarget.delete(targetId);
+    this._sessions.delete(session.sessionId);
+    if (!session.detached && session.sessionId && !this._disposed) {
+      this._browser.send('Target.detachFromTarget', { sessionId: session.sessionId }, { timeout: 3000 }).catch(() => {});
+    }
+    session.detached = true;
+    session._failAll('CDP session detached');
   }
 
   // current live session for a target (after reattach)

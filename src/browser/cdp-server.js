@@ -64,9 +64,13 @@ export class VirtualCdpServer {
     if (client.closed) return;
     client.closed = true;
     this._clients.delete(client);
-    for (const sid of [...client.sessions]) {
+    // Not a snapshot loop: sessions racing registration (attach resolving
+    // just as the client closes) re-add to the set; drain until empty.
+    while (client.sessions.size) {
+      const sid = client.sessions.values().next().value;
       const vs = this._sessions.get(sid);
       if (vs) await this._detachSession(vs).catch(() => {});
+      else client.sessions.delete(sid);
     }
   }
 
@@ -75,12 +79,13 @@ export class VirtualCdpServer {
   notifyTargetsChanged() {
     const current = new Map();
     for (const t of this._listTargets()) {
-      current.set(t.targetId, { url: t.url ?? '', title: t.title ?? '' });
+      current.set(t.targetId, { url: t.url ?? '', title: t.title ?? '', openerTargetId: t.openerTargetId ?? null });
     }
     const subscribers = [...this._clients].filter((c) => c.discover && !c.closed);
     if (subscribers.length) {
-      const info = (targetId, { url, title }) => ({
+      const info = (targetId, { url, title, openerTargetId }) => ({
         targetId, type: 'page', url, title, attached: true, canAccessOpener: false,
+        ...(openerTargetId ? { openerTargetId } : {}),
       });
       for (const [targetId, meta] of current) {
         const prev = this._knownTargets.get(targetId);
@@ -124,7 +129,8 @@ export class VirtualCdpServer {
       domains: new Map(), // domain -> Set<virtualSid> (page sessions)
       autoAttachArmed: new Set(), // virtual page session ids
       autoAttachApplied: false,
-      children: new Map(), // realSid -> { targetId, title, url, owners: Map<virtualSid, vs> }
+      children: new Map(), // realSid -> { targetId, type, title, url, owners: Map<virtualSid, vs> }
+      claimedSids: new Set(), // realSids an explicit attach claimed mid-enumeration
       pendingUnknown: new Map(), // realSid -> buffered events (in-flight attaches)
       enumerating: null, // Map<realSid, targetInfo> while an enumeration cycle runs
       enumPromise: null, // in-flight _enumerateRecordFrames (shared)
@@ -177,12 +183,22 @@ export class VirtualCdpServer {
       this._records.set(wc, record);
     }
     record.refCount++;
-    await this._enqueue(record, async () => {
-      if (record.attached || record.dead || wc.isDestroyed()) return;
-      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
-      record.attached = true;
-      this._wire(record);
-    });
+    try {
+      await this._enqueue(record, async () => {
+        if (record.attached || record.dead || wc.isDestroyed()) return;
+        if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+        record.attached = true;
+        this._wire(record);
+      });
+    } catch (e) {
+      // Enqueued attach threw (e.g. debugger.attach failed): undo the ref so
+      // the count cannot leak; drop a never-used record outright.
+      record.refCount--;
+      if (record.refCount <= 0 && !record.attached && this._records.get(wc) === record) {
+        this._records.delete(wc);
+      }
+      throw e;
+    }
     if (record.dead || !record.attached || wc.isDestroyed()) {
       record.refCount--;
       throw cdpError(-32000, 'Target closed');
@@ -311,7 +327,7 @@ export class VirtualCdpServer {
       });
     }
     if (!owners.size) return;
-    const child = { targetId: targetInfo.targetId, title: targetInfo.title, url: targetInfo.url, owners };
+    const child = { targetId: targetInfo.targetId, type: targetInfo.type ?? 'iframe', title: targetInfo.title, url: targetInfo.url, owners };
     record.children.set(realSid, child);
     this._flushPending(record, realSid, child);
   }
@@ -322,6 +338,7 @@ export class VirtualCdpServer {
     const child = record.children.get(realSid);
     if (!child) return;
     record.children.delete(realSid);
+    record.claimedSids.delete(realSid);
     for (const vs of child.owners.values()) {
       if (vs.detached) continue;
       vs.detached = true;
@@ -415,6 +432,12 @@ export class VirtualCdpServer {
         const wc = this._resolveWc(targetId);
         if (wc) {
           await this._acquire(wc);
+          // Disconnect raced the attach: release what we took and drop the
+          // response (_push no-ops on a closed client).
+          if (client.closed) {
+            await this._release(wc);
+            return {};
+          }
           try {
             const vs = this._newSession(client, { kind: 'page', targetId, wc, holdsRef: true });
             return { sessionId: vs.id };
@@ -433,10 +456,22 @@ export class VirtualCdpServer {
         }
         if (!parentWc || parentWc.isDestroyed()) throw noSuchTarget();
         const record = await this._acquire(parentWc);
+        if (client.closed) {
+          await this._release(parentWc);
+          return {};
+        }
         try {
           const { sessionId: realSid } = await this._cmd(record, 'Target.attachToTarget', { targetId, flatten: true });
+          // Mark BEFORE the continuation continues: a concurrent enumeration
+          // cycle's cleanup must never detach a session a client just took.
+          record.claimedSids.add(realSid);
+          if (client.closed) {
+            await this._cmd(record, 'Target.detachFromTarget', { sessionId: realSid }).catch(() => {});
+            await this._release(parentWc);
+            return {};
+          }
           const vs = this._newSession(client, { kind: 'frame', targetId, wc: parentWc, realSid, holdsRef: true });
-          const child = { targetId, owners: new Map([[vs.id, vs]]) };
+          const child = { targetId, type: 'iframe', owners: new Map([[vs.id, vs]]) };
           record.children.set(realSid, child);
           this._flushPending(record, realSid, child);
           return { sessionId: vs.id };
@@ -470,6 +505,47 @@ export class VirtualCdpServer {
   async _sessionCommand(vs, method, params) {
     const record = this._records.get(vs.wc);
     if (!record || record.dead) throw cdpError(-32000, 'Target closed');
+
+    // Target.* passthrough to the real debugger is browser-context-wide on
+    // this root session (see header) — a page/frame session must never see or
+    // affect other tabs. Intercept BEFORE forwarding:
+    // - getTargets (page): answered locally with own tab + its iframe children.
+    // - attachToTarget (page): only this tab's known OOPIF children; frame
+    //   sessions cannot attach at all.
+    // - setDiscoverTargets / createTarget / closeTarget: never available.
+    // - setAutoAttach / getTargetInfo / detachFromTarget: tab-scoped or
+    //   self-scoped, handled below.
+    if (method.startsWith('Target.')) {
+      if (method === 'Target.getTargets') {
+        if (vs.kind !== 'page') throw notFound(method);
+        const own = this._listTargets().find((t) => t.targetId === vs.targetId);
+        const targetInfos = [{
+          targetId: vs.targetId, type: 'page',
+          title: own?.title ?? '', url: own?.url ?? '',
+          attached: true, canAccessOpener: false,
+        }];
+        for (const c of record.children.values()) {
+          if (c.type !== 'iframe') continue;
+          targetInfos.push({
+            targetId: c.targetId, type: 'iframe',
+            title: c.title ?? '', url: c.url ?? '',
+            attached: true, canAccessOpener: false,
+          });
+        }
+        return { targetInfos };
+      }
+      if (method === 'Target.attachToTarget') {
+        if (vs.kind !== 'page') throw notFound(method);
+        const owned = [...record.children.values()].some((c) => c.targetId === params.targetId);
+        if (!owned) throw noSuchTarget();
+      } else if (
+        method !== 'Target.setAutoAttach'
+        && method !== 'Target.getTargetInfo'
+        && method !== 'Target.detachFromTarget'
+      ) {
+        throw notFound(method);
+      }
+    }
 
     // Domain enable/disable: the shared root debugger (or shared real child
     // session) is enabled once per domain; per-virtual-session membership
@@ -514,11 +590,14 @@ export class VirtualCdpServer {
       const { sessionId: realSid } = await this._cmd(record, 'Target.attachToTarget', {
         targetId: params.targetId, flatten: true,
       });
+      // Mark before the continuation runs (enumeration-cleanup race guard).
+      record.claimedSids.add(realSid);
+      const knownType = [...record.children.values()].find((c) => c.targetId === params.targetId)?.type ?? 'iframe';
       const childVs = this._newSession(vs.client, {
         kind: 'frame', targetId: params.targetId, wc: vs.wc, realSid, holdsRef: false,
         parentSid: vs.id,
       });
-      const child = { targetId: params.targetId, owners: new Map([[childVs.id, childVs]]) };
+      const child = { targetId: params.targetId, type: knownType, owners: new Map([[childVs.id, childVs]]) };
       record.children.set(realSid, child);
       this._flushPending(record, realSid, child);
       return { sessionId: childVs.id };
@@ -605,6 +684,7 @@ export class VirtualCdpServer {
           }
           if (touched && child.owners.size === 0) {
             record.children.delete(realSid);
+            record.claimedSids.delete(realSid);
             await this._cmd(record, 'Target.detachFromTarget', { sessionId: realSid }).catch(() => {});
           }
         }
@@ -612,9 +692,15 @@ export class VirtualCdpServer {
         const child = record.children.get(vs.realSid);
         if (child) {
           child.owners.delete(vs.id);
-          if (child.owners.size === 0) record.children.delete(vs.realSid);
+          if (child.owners.size === 0) {
+            record.children.delete(vs.realSid);
+            record.claimedSids.delete(vs.realSid);
+            // Only drop the REAL child session once no virtual session still
+            // rides it (mirrors the page branch) — otherwise detaching one
+            // frame session kills the shared realSid for the others.
+            await this._cmd(record, 'Target.detachFromTarget', { sessionId: vs.realSid }).catch(() => {});
+          }
         }
-        await this._cmd(record, 'Target.detachFromTarget', { sessionId: vs.realSid }).catch(() => {});
       }
     }
     if (vs.holdsRef) await this._release(vs.wc);
@@ -669,9 +755,11 @@ export class VirtualCdpServer {
       // Already armed by a virtual page session: record.children IS the
       // current frame set, no cycle needed.
       if (record.autoAttachApplied && !record.enumerating) {
-        return [...record.children.values()].map((c) => ({
-          targetId: c.targetId, title: c.title ?? '', url: c.url ?? '',
-        }));
+        return [...record.children.values()]
+          .filter((c) => c.type === 'iframe') // same type filter as the slow path: workers are not frames
+          .map((c) => ({
+            targetId: c.targetId, title: c.title ?? '', url: c.url ?? '',
+          }));
       }
       const collector = new Map(); // realSid -> targetInfo
       record.enumerating = collector;
@@ -693,9 +781,13 @@ export class VirtualCdpServer {
           }).catch(() => {});
         }
         // Drop the real child sessions the cycle created — but never ones a
-        // client attached explicitly or an armed session claimed meanwhile.
+        // client attached explicitly or an armed session claimed meanwhile:
+        // a children entry WITH owners, or a realSid an explicit attach
+        // claimed before its continuation ran (100ms window race).
         for (const realSid of collector.keys()) {
-          if (record.children.has(realSid)) continue;
+          const entry = record.children.get(realSid);
+          if (entry && entry.owners.size > 0) continue;
+          if (record.claimedSids.has(realSid)) continue;
           await this._cmd(record, 'Target.detachFromTarget', { sessionId: realSid }).catch(() => {});
         }
       }

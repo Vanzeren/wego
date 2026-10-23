@@ -23,6 +23,7 @@ function timeoutError(what, ms) {
 
 function poll(fn, { interval = 100 } = {}) {
   let cancelled = false;
+  let timer = null;
   const promise = new Promise((resolve) => {
     const tick = async () => {
       if (cancelled) return;
@@ -30,11 +31,14 @@ function poll(fn, { interval = 100 } = {}) {
       try { v = await fn(); } catch { v = undefined; }
       if (cancelled) return;
       if (v) return resolve(v);
-      setTimeout(tick, interval);
+      timer = setTimeout(tick, interval);
     };
     tick();
   });
-  promise.cancel = () => { cancelled = true; };
+  promise.cancel = () => {
+    cancelled = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
   return promise;
 }
 
@@ -118,80 +122,103 @@ export class Page {
 
   async _session() {
     if (!this._sessionPromise) {
-      this._sessionPromise = (async () => {
+      const p = (async () => {
         const session = await this._ctx().cdp.attach(this.targetId);
-        await session.send('Page.enable');
-        await session.send('Runtime.enable').catch(() => {});
-        await session.send('Network.enable').catch(() => {});
-        // JS dialogs: native UI is disabled (disableDialogs); record every
-        // call via a binding so receipts/info() still surface them, with
-        // safe auto-dismiss defaults (confirm→false, prompt→null).
-        const shim = `(() => {
-          const record = (type, message, ret) => {
-            const entry = { type, message: String(message ?? ''), at: Date.now() };
-            (globalThis.__wegoDialogLog = globalThis.__wegoDialogLog || []).push(entry);
-            try { globalThis.__wegoDialog(JSON.stringify(entry)); } catch {}
-            return ret;
-          };
-          window.alert = (m) => record('alert', m, undefined);
-          window.confirm = (m) => record('confirm', m, false);
-          window.prompt = (m) => record('prompt', m, null);
-        })();`;
-        await session.send('Page.addScriptToEvaluateOnNewDocument', { source: shim }).catch(() => {});
-        await session.send('Runtime.evaluate', { expression: shim }).catch(() => {});
-        await session.send('Runtime.addBinding', { name: '__wegoDialog' }).catch(() => {});
-        session.on('Runtime.bindingCalled', (p) => {
-          if (p.name !== '__wegoDialog') return;
-          try { this._dialog = JSON.parse(p.payload); } catch { /* malformed */ }
-          this._recordEvent('Runtime.bindingCalled', { name: p.name });
-        });
-
-        session.on('Page.javascriptDialogOpening', (p) => {
-          this._dialog = { type: p.type, message: p.message };
-          this._recordEvent('Page.javascriptDialogOpening', p);
-        });
-        session.on('Page.javascriptDialogClosed', () => { this._dialog = null; });
-
-        // Intercept file choosers so scripts can arm waitForFileChooser()
-        // before the triggering click. Unwaited choosers are cancelled so the
-        // page never hangs on a native dialog.
-        await session.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => {});
-        session.on('Page.fileChooserOpened', (p) => {
-          this._recordEvent('Page.fileChooserOpened', p);
-          const chooser = new FileChooser(this, p);
-          const waiters = this._chooserWaiters.splice(0);
-          if (waiters.length) {
-            for (const w of waiters) w(chooser);
-          } else {
-            void chooser.cancel();
-          }
-        });
-
-        session.on('Network.requestWillBeSent', () => { this._networkInFlight++; this._lastNetworkActivity = Date.now(); });
-        session.on('Network.loadingFinished', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
-        session.on('Network.loadingFailed', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
-
-        // Downloads: Electron routes them through session.will-download, and
-        // CDP download events never fire — the SDK waits on the bridge
-        // registry instead (see waitForEvent('download')).
-
-        // buffer remaining events as summaries
-        for (const m of ['Page.loadEventFired', 'Page.domContentEventFired', 'Page.frameNavigated', 'Console.messageAdded']) {
-          session.on(m, (p) => this._recordEvent(m, p));
-        }
+        await this._armSession(session);
         return session;
       })();
+      this._sessionPromise = p;
       // a failed attach/setup must not brick the Page for its lifetime:
-      // the next _session() call retries from scratch.
-      this._sessionPromise.catch(() => { this._sessionPromise = null; });
+      // the next _session() call retries from scratch. Guard on identity so
+      // a concurrent rebuild's promise isn't nulled by a stale failure.
+      p.catch(() => { if (this._sessionPromise === p) this._sessionPromise = null; });
     }
-    const session = await this._sessionPromise;
+    const p = this._sessionPromise;
+    const session = await p;
     if (session.detached) {
       // renderer crash / target swap: drop the cached session and re-attach
-      this._sessionPromise = null;
+      if (this._sessionPromise === p) this._sessionPromise = null;
       return this._session();
     }
     return session;
+  }
+
+  // Listeners run ONCE per CDPSession object (they survive auto-reattach);
+  // enable/setup commands must RE-RUN on every fresh sessionId.
+  async _armSession(session) {
+    if (!session.__wegoListenersArmed) {
+      session.__wegoListenersArmed = true;
+      this._registerSessionListeners(session);
+      // Auto-reattach binds a new server-side session with no enabled
+      // domains — re-run ONLY the setup part, in place.
+      session.on('wego:reattached', () => { this._setupSession(session).catch(() => {}); });
+    }
+    await this._setupSession(session);
+  }
+
+  async _setupSession(session) {
+    await session.send('Page.enable');
+    await session.send('Runtime.enable').catch(() => {});
+    await session.send('Network.enable').catch(() => {});
+    // JS dialogs: native UI is disabled (disableDialogs); record every
+    // call via a binding so receipts/info() still surface them, with
+    // safe auto-dismiss defaults (confirm→false, prompt→null).
+    const shim = `(() => {
+      const record = (type, message, ret) => {
+        const entry = { type, message: String(message ?? ''), at: Date.now() };
+        (globalThis.__wegoDialogLog = globalThis.__wegoDialogLog || []).push(entry);
+        try { globalThis.__wegoDialog(JSON.stringify(entry)); } catch {}
+        return ret;
+      };
+      window.alert = (m) => record('alert', m, undefined);
+      window.confirm = (m) => record('confirm', m, false);
+      window.prompt = (m) => record('prompt', m, null);
+    })();`;
+    await session.send('Page.addScriptToEvaluateOnNewDocument', { source: shim }).catch(() => {});
+    await session.send('Runtime.evaluate', { expression: shim }).catch(() => {});
+    await session.send('Runtime.addBinding', { name: '__wegoDialog' }).catch(() => {});
+    // Intercept file choosers so scripts can arm waitForFileChooser()
+    // before the triggering click. Unwaited choosers are cancelled so the
+    // page never hangs on a native dialog.
+    await session.send('Page.setInterceptFileChooserDialog', { enabled: true }).catch(() => {});
+  }
+
+  _registerSessionListeners(session) {
+    session.on('Runtime.bindingCalled', (p) => {
+      if (p.name !== '__wegoDialog') return;
+      try { this._dialog = JSON.parse(p.payload); } catch { /* malformed */ }
+      this._recordEvent('Runtime.bindingCalled', { name: p.name });
+    });
+
+    session.on('Page.javascriptDialogOpening', (p) => {
+      this._dialog = { type: p.type, message: p.message };
+      this._recordEvent('Page.javascriptDialogOpening', p);
+    });
+    session.on('Page.javascriptDialogClosed', () => { this._dialog = null; });
+
+    session.on('Page.fileChooserOpened', (p) => {
+      this._recordEvent('Page.fileChooserOpened', p);
+      const chooser = new FileChooser(this, p);
+      const waiters = this._chooserWaiters.splice(0);
+      if (waiters.length) {
+        for (const w of waiters) w.resolve(chooser);
+      } else {
+        void chooser.cancel();
+      }
+    });
+
+    session.on('Network.requestWillBeSent', () => { this._networkInFlight++; this._lastNetworkActivity = Date.now(); });
+    session.on('Network.loadingFinished', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
+    session.on('Network.loadingFailed', () => { this._networkInFlight = Math.max(0, this._networkInFlight - 1); this._lastNetworkActivity = Date.now(); });
+
+    // Downloads: Electron routes them through session.will-download, and
+    // CDP download events never fire — the SDK waits on the bridge
+    // registry instead (see waitForEvent('download')).
+
+    // buffer remaining events as summaries
+    for (const m of ['Page.loadEventFired', 'Page.domContentEventFired', 'Page.frameNavigated', 'Console.messageAdded']) {
+      session.on(m, (p) => this._recordEvent(m, p));
+    }
   }
 
   _recordEvent(method, params) {
@@ -212,7 +239,7 @@ export class Page {
       const label = this.space._labelForTarget(info.targetId);
       this._popups.push({ label, targetId: info.targetId });
       const waiters = this._popupWaiters.splice(0);
-      for (const w of waiters) w({ label, targetId: info.targetId });
+      for (const w of waiters) w.resolve({ label, targetId: info.targetId });
     });
   }
 
@@ -339,7 +366,14 @@ export class Page {
   async waitForEvent(name, { timeout = DEFAULT_TIMEOUT } = {}) {
     if (name === 'popup') {
       this._watchPopups();
-      return withTimeout(new Promise((r) => this._popupWaiters.push(r)), timeout, "waitForEvent('popup')");
+      const entry = { resolve: null };
+      const p = new Promise((r) => { entry.resolve = r; });
+      p.cancel = () => {
+        const i = this._popupWaiters.indexOf(entry);
+        if (i >= 0) this._popupWaiters.splice(i, 1);
+      };
+      this._popupWaiters.push(entry);
+      return withTimeout(p, timeout, "waitForEvent('popup')");
     }
     if (name === 'download') {
       // Downloads live in the bridge registry (browser-side will-download
@@ -347,7 +381,9 @@ export class Page {
       const ego = this._ctx().ego;
       const listDownloads = async () =>
         (await ego._call('downloads').catch(() => ({ downloads: [] }))).downloads ?? [];
-      const known = new Map((await listDownloads()).map((d) => [d.id ?? d.url, d.savePath]));
+      // ego._call has no timeout of its own — a wedged bridge must not hang
+      // the pre-arm forever.
+      const known = new Map((await withTimeout(listDownloads(), 10_000, 'waitForEvent(\'download\') pre-arm')).map((d) => [d.id ?? d.url, d.savePath]));
       let cancelled = false;
       const loop = (async () => {
         for (;;) {
@@ -362,13 +398,16 @@ export class Page {
               const dl = new Download(this, null, d.url, d.filename);
               dl._id = d.id ?? null;
               dl._path = d.savePath;
-              // resolve done when the registry entry settles
+              // resolve done when the registry entry settles; stop when the
+              // outer wait cancels or after a 10-minute cap.
+              const settleDeadline = Date.now() + 10 * 60_000;
               (async () => {
-                for (;;) {
+                while (!cancelled && Date.now() < settleDeadline) {
                   const cur = (await listDownloads()).find((x) => x.savePath === dl._path);
-                  if (!cur || cur.state !== 'progressing') { dl._resolveDone(); return; }
+                  if (!cur || cur.state !== 'progressing') break;
                   await new Promise((r) => setTimeout(r, 200));
                 }
+                dl._resolveDone();
               })();
               return dl;
             }
@@ -384,7 +423,14 @@ export class Page {
 
   async waitForFileChooser({ timeout = DEFAULT_TIMEOUT } = {}) {
     await this._session(); // ensures interception is enabled before the click
-    return withTimeout(new Promise((r) => this._chooserWaiters.push(r)), timeout, 'waitForFileChooser');
+    const entry = { resolve: null };
+    const p = new Promise((r) => { entry.resolve = r; });
+    p.cancel = () => {
+      const i = this._chooserWaiters.indexOf(entry);
+      if (i >= 0) this._chooserWaiters.splice(i, 1);
+    };
+    this._chooserWaiters.push(entry);
+    return withTimeout(p, timeout, 'waitForFileChooser');
   }
 
   events() {

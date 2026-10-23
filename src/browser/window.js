@@ -106,7 +106,7 @@ export function createMainWindow({ stateDir } = {}) {
       for (const space of spaces.allSpaces()) {
         for (const tab of space.tabs) {
           if (!tab.view || tab.targetId.startsWith('tab-')) continue;
-          out.push({ targetId: tab.targetId, type: 'page', url: tab.url ?? '', title: tab.title ?? '' });
+          out.push({ targetId: tab.targetId, type: 'page', url: tab.url ?? '', title: tab.title ?? '', ...(tab.openerTargetId ? { openerTargetId: tab.openerTargetId } : {}) });
         }
       }
       return out;

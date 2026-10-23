@@ -300,6 +300,58 @@ test('whenTabsReady throws WEGO_OPERATION_FAILED when a tab keeps its placeholde
   await sm.whenTabsReady(t.id);
 });
 
+test('dropUnresolvedTab removes an orphan placeholder and emits spaceChanged', () => {
+  const destroyed = [];
+  const sm = makeManager({ destroyView: (s, tab) => destroyed.push(tab.targetId) });
+  sm.createPersonalSpace();
+  const t = sm.createTaskSpace({ name: 'orphan' });
+  const space = sm.getSpace(t.id);
+  const placeholder = space.tabs[0].targetId;
+  let events = 0;
+  sm.on('spaceChanged', (id) => { if (id === t.id) events++; });
+  sm.dropUnresolvedTab(t.id, placeholder);
+  assert.deepEqual(destroyed, [placeholder]);
+  // auto-replacement keeps ≥1 tab and the placeholder is gone
+  assert.equal(space.tabs.some((tab) => tab.targetId === placeholder), false);
+  assert.equal(space.tabs.length, 1);
+  assert.ok(events >= 1);
+  // no-ops: unknown placeholder, already-swapped id, missing space
+  sm.dropUnresolvedTab(t.id, 'tab-999');
+  sm.dropUnresolvedTab(999, placeholder);
+  assert.equal(space.tabs.length, 1);
+});
+
+test('dropUnresolvedTab is a no-op once the real targetId landed', () => {
+  const sm = makeManager();
+  sm.createPersonalSpace();
+  const t = sm.createTaskSpace({ name: 'swapped' });
+  const space = sm.getSpace(t.id);
+  const placeholder = space.tabs[0].targetId;
+  sm.noteTargetId(t.id, placeholder, 'REAL-1');
+  sm.dropUnresolvedTab(t.id, placeholder);
+  assert.deepEqual(space.tabs.map((tab) => tab.targetId), ['REAL-1']);
+});
+
+test('whenTabsReady ignores tabs added while awaiting (add-during-await race)', async () => {
+  let resolveLate;
+  const sm = makeManager({
+    createView(space, tab) {
+      tab.targetIdReady = tab.url.includes('late')
+        ? new Promise((r) => { resolveLate = r; })
+        : Promise.resolve().then(() => sm.noteTargetId(space.id, tab.targetId, `REAL-${tab.targetId}`));
+      return null;
+    },
+  });
+  sm.createPersonalSpace();
+  const t = sm.createTaskSpace({ name: 'race' });
+  // first tab resolves immediately; start the await, then add a tab whose
+  // resolution is still pending — it must not fail or hold this call.
+  const ready = sm.whenTabsReady(t.id);
+  sm.createTab(t.id, 'http://late/');
+  await ready; // resolves without throwing despite the pending new tab
+  resolveLate();
+});
+
 test('closeTaskSpace bypasses the auto-replacement (space fully destroyed)', () => {
   const destroyed = [];
   const sm = makeManager({ destroyView: (s, tab) => destroyed.push(tab.url) });

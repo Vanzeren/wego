@@ -62,7 +62,9 @@ export function setupViews(ctx) {
       let target = path.join(dir, name);
       for (let n = 1; fs.existsSync(target); n++) {
         const ext = path.extname(name);
-        target = path.join(dir, `${name.slice(0, -ext.length)} (${n})${ext}`);
+        // ext may be '' (extensionless name): slice(0, -0) yields '' and
+        // would reduce every retry to " (n)" — compute the length instead.
+        target = path.join(dir, `${name.slice(0, name.length - ext.length)} (${n})${ext}`);
       }
       item.setSavePath(target);
       const id = `${item.getURL()}#${++downloadSeq}`;
@@ -127,7 +129,10 @@ export function setupViews(ctx) {
     });
     // Popups (window.open / target=_blank) become tabs in the same space.
     wc.setWindowOpenHandler(({ url }) => {
-      ctx.spaces().addUserTab(space.id, url || 'about:blank');
+      // popups become same-space tabs; the opener id rides along so the
+      // CDP targetCreated push carries openerTargetId (SDK popup adoption).
+      const opener = tab.targetId.startsWith('tab-') ? null : tab.targetId;
+      ctx.spaces().addUserTab(space.id, url || 'about:blank', opener);
       return { action: 'deny' };
     });
     const trackUrl = (url) => {
@@ -181,6 +186,7 @@ export function setupViews(ctx) {
     // (Target.getTargetInfo) — no marker navigation, no DevTools HTTP
     // endpoint. The view paints its dark background color until the intended
     // page's first frame.
+    const placeholderId = tab.targetId;
     tab.targetIdReady = (async () => {
       const realId = await ctx.cdpServer.resolveTargetId(wc);
       ctx.spaces().noteTargetId(space.id, tab.targetId, realId);
@@ -192,8 +198,12 @@ export function setupViews(ctx) {
       return realId;
     })();
     // Handlers (awaitTargetId/whenTabsReady) attach later; silence the
-    // rejection window in between.
-    tab.targetIdReady.catch(() => {});
+    // rejection window in between. On failure, drop the orphan placeholder
+    // tab so listTabs is never permanently wedged (chrome updates via
+    // spaceChanged); no-op if the id was already swapped or the tab closed.
+    tab.targetIdReady.catch(() => {
+      ctx.spaces().dropUnresolvedTab(space.id, placeholderId);
+    });
     return view;
   }
 

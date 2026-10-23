@@ -25,11 +25,11 @@ export class MainCdpClient {
       }
       // Prune cached attachCached sessions for destroyed targets (and any
       // flattened child sessions they spawned) so _sessions cannot leak.
-      if (msg.method === 'Target.targetDestroyed') {
+      if (msg.method === 'Target.targetDestroyed' || msg.method === 'Target.detachedFromTarget') {
         const targetId = msg.params?.targetId;
         const sessionId = msg.params?.sessionId;
         for (const [key, session] of this._sessions) {
-          if (key === targetId || (sessionId && session.sessionId === sessionId)) {
+          if ((targetId && key === targetId) || (sessionId && session.sessionId === sessionId)) {
             this._sessions.delete(key);
           }
         }
@@ -84,6 +84,20 @@ export class MainCdpClient {
     const existing = this._sessions.get(targetId);
     if (existing) return existing;
     const session = await this.attach(targetId);
+    const rawSend = session.send;
+    session.send = async (method, params = {}) => {
+      try {
+        return await rawSend(method, params);
+      } catch (e) {
+        // Stale cache entry (target went away without a discovery event we
+        // saw): evict so the next attachCached re-attaches instead of
+        // failing forever on the dead session.
+        if (/no session with given id/i.test(e?.message ?? '') && this._sessions.get(targetId) === session) {
+          this._sessions.delete(targetId);
+        }
+        throw e;
+      }
+    };
     this._sessions.set(targetId, session);
     return session;
   }

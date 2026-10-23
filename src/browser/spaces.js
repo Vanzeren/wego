@@ -274,8 +274,8 @@ export class SpaceManager extends EventEmitter {
 
   // ---- tabs ----
 
-  #addTab(space, url) {
-    const tab = { targetId: `tab-${this.#nextTabNum++}`, view: null, url, title: '' };
+  #addTab(space, url, openerTargetId = null) {
+    const tab = { targetId: `tab-${this.#nextTabNum++}`, view: null, url, title: '', openerTargetId };
     tab.view = this.#hooks.createView?.(space, tab) ?? null;
     space.tabs.push(tab);
     space.activeTargetId = tab.targetId;
@@ -290,9 +290,9 @@ export class SpaceManager extends EventEmitter {
     return { targetId: tab.targetId, index: space.tabs.length - 1 };
   }
 
-  addUserTab(id, url) {
+  addUserTab(id, url, openerTargetId = null) {
     const space = this.requireSpace(id);
-    const tab = this.#addTab(space, url);
+    const tab = this.#addTab(space, url, openerTargetId);
     return { targetId: tab.targetId, index: space.tabs.length - 1 };
   }
 
@@ -397,6 +397,18 @@ export class SpaceManager extends EventEmitter {
     this.emit('spaceChanged', id);
   }
 
+  // A tab whose CDP targetId resolution failed (view/renderer died before the
+  // debugger could resolve the real id) would wedge awaitTargetId/whenTabsReady
+  // forever with its placeholder tab-N id. Called from the createView hook's
+  // rejection path: drop the tab only if it is still that same placeholder
+  // (a successful noteTargetId swap or explicit close makes this a no-op).
+  dropUnresolvedTab(id, placeholderId) {
+    const space = this.#spaces.get(id);
+    if (!space) return;
+    if (!space.tabs.some((t) => t.targetId === placeholderId)) return;
+    this.#removeTab(space, placeholderId); // emits spaceChanged; keeps ≥1 tab
+  }
+
   async awaitTargetId(id, targetId) {
     const space = this.requireSpace(id);
     const tab = space.tabs.find((t) => t.targetId === targetId);
@@ -412,10 +424,13 @@ export class SpaceManager extends EventEmitter {
 
   async whenTabsReady(id) {
     const space = this.requireSpace(id);
-    await Promise.all(space.tabs.map((t) => t.targetIdReady?.catch(() => {}) ?? null));
+    // Snapshot the awaited set: a tab added WHILE we await has no resolution
+    // guarantee and must not fail (or be failed by) this call.
+    const awaited = [...space.tabs];
+    await Promise.all(awaited.map((t) => t.targetIdReady?.catch(() => {}) ?? null));
     // Fail like awaitTargetId: a tab whose marker resolution failed would
     // otherwise leak its placeholder tab-N id into bridge listTabs responses.
-    const stale = space.tabs.find((t) => t.targetId.startsWith('tab-'));
+    const stale = awaited.find((t) => t.targetId.startsWith('tab-') && space.tabs.includes(t));
     if (stale) {
       throw err('WEGO_OPERATION_FAILED', `CDP target resolution failed for tab ${stale.targetId} in space ${id}`);
     }
