@@ -10,13 +10,13 @@ export function setupIpc(ctx, ipcMain) {
     const space = ctx.spaces().getActive();
     const userEditable = !!space && space.control === 'user';
     switch (type) {
-      case 'back': if (userEditable) ctx.activeWc()?.navigationHistory.goBack(); break;
-      case 'forward': if (userEditable) ctx.activeWc()?.navigationHistory.goForward(); break;
-      case 'reload': if (userEditable) ctx.activeWc()?.reload(); break;
+      case 'back': if (userEditable) ctx.activeTabWc()?.navigationHistory.goBack(); break;
+      case 'forward': if (userEditable) ctx.activeTabWc()?.navigationHistory.goForward(); break;
+      case 'reload': if (userEditable) ctx.activeTabWc()?.reload(); break;
       case 'navigate':
         if (userEditable && typeof msg.url === 'string' && msg.url) {
           const url = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(msg.url) ? msg.url : `https://${msg.url}`;
-          ctx.activeWc()?.loadURL(url).catch(() => {});
+          ctx.activeTabWc()?.loadURL(url).catch(() => {});
         }
         break;
       case 'newTab':
@@ -38,14 +38,14 @@ export function setupIpc(ctx, ipcMain) {
       case 'find':
         findText = typeof msg.text === 'string' ? msg.text : '';
         ctx.findbar.setText(findText);
-        if (findText) ctx.activeWc()?.findInPage(findText);
-        else ctx.activeWc()?.stopFindInPage('clearSelection');
+        if (findText) ctx.activeTabWc()?.findInPage(findText);
+        else ctx.activeTabWc()?.stopFindInPage('clearSelection');
         break;
       case 'findNext':
-        if (findText) ctx.activeWc()?.findInPage(findText, { forward: msg.forward !== false, findNext: true });
+        if (findText) ctx.activeTabWc()?.findInPage(findText, { forward: msg.forward !== false, findNext: true });
         break;
       case 'findClose':
-        ctx.activeWc()?.stopFindInPage('clearSelection');
+        ctx.activeTabWc()?.stopFindInPage('clearSelection');
         ctx.findbar.hide();
         break;
       case 'switchSpace':

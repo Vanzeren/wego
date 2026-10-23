@@ -166,7 +166,11 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   }
 
   function pushState() {
-    if (!win.isDestroyed()) win.webContents.send('state', spaces.serializeAll());
+    if (!win.isDestroyed()) {
+      const wc = ctx.activeTabWc();
+      const nav = { back: wc?.canGoBack() ?? false, forward: wc?.canGoForward() ?? false };
+      win.webContents.send('state', { ...spaces.serializeAll(), nav });
+    }
   }
 
   spaces.on('spaceChanged', () => { layoutViews(); pushState(); persistence.scheduleSpacesSave(spaces); });

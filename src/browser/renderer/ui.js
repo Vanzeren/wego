@@ -107,6 +107,8 @@ function render() {
   if (document.activeElement !== omnibox) {
     omnibox.value = activeTab && activeTab.url !== 'about:blank' ? activeTab.url : '';
   }
+  $('#back').disabled = !(state.nav?.back);
+  $('#forward').disabled = !(state.nav?.forward);
 
   const strip = $('#tabstrip');
   strip.textContent = '';

@@ -30,6 +30,8 @@
   .navbtn { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent;
     color: var(--muted); font-size: 15px; cursor: pointer; transition: background .12s, color .12s; }
   .navbtn:hover { background: var(--hover); color: var(--text); }
+  .navbtn:disabled { opacity: 0.35; cursor: default; }
+  .navbtn:disabled:hover { background: transparent; color: var(--muted); }
   #omnibox { flex: 1; height: 32px; border: 1px solid transparent; border-radius: 10px;
     background: #101116; color: var(--text); padding: 0 14px; outline: none; margin: 0 6px;
     -webkit-app-region: no-drag; transition: border-color .12s, box-shadow .12s; }
