@@ -26,6 +26,12 @@ const gotLock = app.requestSingleInstanceLock();
 let windowApi = null;
 let bridgeHandle = null;
 
+// A throwing event handler (validator bug, renderer race) must never surface
+// as Electron's modal "JavaScript error in the main process" dialog — that
+// freezes the whole browser. Log and keep running.
+process.on('uncaughtException', (e) => console.error('[wego] uncaught:', e));
+process.on('unhandledRejection', (e) => console.error('[wego] unhandled rejection:', e));
+
 if (!gotLock) {
   app.quit();
 } else {

@@ -42,7 +42,8 @@ test('validators reject invalid values with WEGO_INVALID_ARGUMENT', () => {
     ['uiZoom', 0.4],
     ['uiZoom', 'big'],
     ['pageZoomLevel', 9],
-    ['pageZoomLevel', 1.5],
+    ['pageZoomLevel', -3.1],
+    ['pageZoomLevel', 'big'],
     ['searchEngine', 'askjeeves'],
     ['downloadDir', 'relative/path'],
     ['restoreSession', 'yes'],
@@ -61,9 +62,12 @@ test('boundary values are accepted', () => {
   s.set('uiZoom', 2);
   s.set('pageZoomLevel', -3);
   s.set('pageZoomLevel', 5);
+  // Electron zoom steps are fractional (each level ×1.2): 1.5 must pass —
+  // the zoom shortcut handler feeds raw getZoomLevel() values through here.
+  s.set('pageZoomLevel', 1.5);
   s.set('downloadDir', '');
   assert.equal(s.get('uiZoom'), 2);
-  assert.equal(s.get('pageZoomLevel'), 5);
+  assert.equal(s.get('pageZoomLevel'), 1.5);
 });
 
 test('invalid persisted values fall back to defaults', () => {

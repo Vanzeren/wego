@@ -148,6 +148,15 @@
         }
       }
       sel.value = String(v.pageZoomLevel);
+      // Keyboard zoom produces fractional levels (×1.2 steps); if the current
+      // value has no matching option, show it explicitly instead of blanking.
+      if (sel.value !== String(v.pageZoomLevel)) {
+        const o = document.createElement('option');
+        o.value = String(v.pageZoomLevel);
+        o.textContent = `${v.pageZoomLevel > 0 ? '+' : ''}${v.pageZoomLevel} (${Math.round(Math.pow(1.2, v.pageZoomLevel) * 100)}%)`;
+        sel.appendChild(o);
+        sel.value = String(v.pageZoomLevel);
+      }
       const box = $('#engines');
       box.textContent = '';
       for (const e of data.engines) {

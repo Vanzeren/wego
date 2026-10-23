@@ -32,8 +32,10 @@ const VALIDATORS = {
     }
   },
   pageZoomLevel(v) {
-    if (typeof v !== 'number' || !Number.isFinite(v) || Math.round(v) !== v || v < -3 || v > 5) {
-      throw invalid('pageZoomLevel', 'an integer in [-3, 5]');
+    // Electron zoom levels are fractional (each step ×1.2: 0.5, 1.5, 2.5…);
+    // rejecting non-integers crashed the main process from the zoom handler.
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < -3 || v > 5) {
+      throw invalid('pageZoomLevel', 'a number in [-3, 5]');
     }
   },
   searchEngine(v) {
