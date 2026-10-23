@@ -185,10 +185,9 @@ export function setupViews(ctx) {
     view.setBounds(ctx.initialViewBounds(space));
     const wc = view.webContents;
     const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
-    // Dark data-URL marker: unique (matched in /json/list to resolve the
-    // real CDP targetId) and dark, so new tabs no longer flash white
-    // before the new-tab page paints.
-    const marker = `data:text/html,<!doctype html><style>html{background:%2317181c}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
+    // Dark data-URL marker (transparent while priming): unique (matched in
+    // /json/list to resolve the real CDP targetId) and invisible on screen.
+    const marker = `data:text/html,<!doctype html><style>html{background:transparent}</style><!--wego-marker-${space.id}-${tab.targetId}-->`;
     tab.targetIdReady = (async () => {
       await wc.loadURL(marker); // may reject if a racing goto aborts it
       const realId = await resolveCdpTargetId(marker, wc);
@@ -197,27 +196,31 @@ export function setupViews(ctx) {
       // await this promise, so a racing SDK goto can never be clobbered by a
       // late new-tab-page load.
       if (!wc.isDestroyed()) await wc.loadURL(intended).catch(() => {});
+      // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
+      // until the view has painted a frame while on top. Re-attach after the
+      // first content load, then re-cover on that paint — one dark frame.
+      if (space.ownership === 'agent' && !wc.isDestroyed()) {
+        try {
+          host.contentView.removeChildView(view);
+          host.contentView.addChildView(view); // on top, one frame
+          await new Promise((resolve) => {
+            wc.once('paint', resolve);
+            setTimeout(resolve, 500); // never block readiness on paint
+          });
+        } catch { /* re-attach raced */ }
+        try { view.setBackgroundColor('#17181c'); } catch { /* gone */ }
+      }
+      ctx.layoutViews(); // correct z-order / re-cover
       return realId;
     })();
     // Handlers (awaitTargetId/whenTabsReady) attach later; silence the
     // rejection window in between.
     tab.targetIdReady.catch(() => {});
     // Compositor priming: CDP Input.dispatchMouseEvent is silently dropped
-    // until the view has actually painted a frame while on top. Re-attach
-    // (remove+add) puts it on top; re-cover on its first real paint so the
-    // user's page is only covered for a few milliseconds of dark content.
-    tab.targetIdReady.then(() => {
-      if (wc.isDestroyed()) return;
-      const cover = () => ctx.layoutViews();
-      let done = false;
-      const finish = () => { if (!done) { done = true; cover(); } };
-      try {
-        host.contentView.removeChildView(view);
-        host.contentView.addChildView(view); // on top now
-      } catch { finish(); return; }
-      wc.once('paint', finish);
-      setTimeout(finish, 800); // belt: never leave it covering
-    }).catch(() => {});
+    // until the view has painted a frame while on top. Re-attach at full size
+    // with a TRANSPARENT background so the priming frame is invisible, then
+    // re-cover on first paint and restore the dark background.
+    view.setBackgroundColor('#00000000');
     return view;
   }
 
