@@ -55,7 +55,27 @@ export function quadUnionBox(quads) {
   return { left, top, width: right - left, height: bottom - top, cx: (left + right) / 2, cy: (top + bottom) / 2 };
 }
 
-// ---------------------------------------------------------------- Page
+// ---------------------------------------------------------------- pointer dispatch
+
+// CDP Input.dispatchMouseEvent is silently dropped for views that are
+// covered (never composited foreground) — nondeterministically across
+// compositor states. Synthetic in-page events always land. Foreground tabs
+// (visibilityState visible) get real trusted input; covered tabs get
+// synthetic events (isTrusted=false but delivered everywhere).
+async function syntheticPointer(session, objectId, point, { clickCount = 1, hover = false } = {}) {
+  const fn = `function(x, y, count, hover) {
+    const mk = (type) => new (type.startsWith('pointer') ? PointerEvent : MouseEvent)(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+    if (hover) { this.dispatchEvent(mk('pointermove')); this.dispatchEvent(mk('mousemove')); return; }
+    for (let i = 0; i < count; i++) {
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) this.dispatchEvent(mk(type));
+    }
+  }`;
+  await session.send('Runtime.callFunctionOn', {
+    objectId,
+    functionDeclaration: fn,
+    arguments: [{ value: point.x }, { value: point.y }, { value: clickCount }, { value: hover }],
+  });
+}
 
 export class Page {
   static _learnHinted = new Set(); // hosts already hinted this process
@@ -458,10 +478,26 @@ export class Page {
     return receipt;
   }
 
-  async _dispatchClick(point, { clickCount = 1, session } = {}) {
+  // visibilityState cache per page (covered tabs report hidden)
+  async _covered(session) {
+    const now = Date.now();
+    if (this._visCache && now - this._visCache.at < 300) return this._visCache.covered;
+    const { result } = await session.send('Runtime.evaluate', {
+      expression: 'document.visibilityState === "hidden"',
+      returnByValue: true,
+    }).catch(() => ({ result: { value: false } }));
+    this._visCache = { at: now, covered: !!result?.value };
+    return this._visCache.covered;
+  }
+
+  async _dispatchClick(point, { clickCount = 1, session, objectId } = {}) {
     session ??= await this._session();
     this._watchPopups();
     this._mousePos = { x: point.x, y: point.y };
+    if (objectId && await this._covered(session)) {
+      await syntheticPointer(session, objectId, point, { clickCount });
+      return;
+    }
     await mouseEvent(session, 'mouseMoved', point.x, point.y);
     await mouseEvent(session, 'mousePressed', point.x, point.y, { button: 'left', buttons: MOUSE_BUTTONS.left, clickCount });
     await mouseEvent(session, 'mouseReleased', point.x, point.y, { button: 'left', buttons: 0, clickCount });
@@ -471,22 +507,26 @@ export class Page {
 
   async click(target, { label } = {}) {
     void label;
-    const { point, session } = await this._pointFor(target);
-    await this._dispatchClick(point, { clickCount: 1, session });
+    const { point, session, objectId } = await this._pointFor(target);
+    await this._dispatchClick(point, { clickCount: 1, session, objectId });
     return this._receipt();
   }
 
   async dblclick(target, { label } = {}) {
     void label;
-    const { point, session } = await this._pointFor(target);
-    await this._dispatchClick(point, { clickCount: 2, session });
+    const { point, session, objectId } = await this._pointFor(target);
+    await this._dispatchClick(point, { clickCount: 2, session, objectId });
     return this._receipt();
   }
 
   async hover(target, { label } = {}) {
     void label;
     // hover may target disabled elements
-    const { point, session } = await this._pointFor(target, { checkActionable: false });
+    const { point, session, objectId } = await this._pointFor(target, { checkActionable: false });
+    if (objectId && await this._covered(session)) {
+      await syntheticPointer(session, objectId, point, { hover: true });
+      return this._receipt();
+    }
     await mouseEvent(session, 'mouseMoved', point.x, point.y);
     return this._receipt();
   }

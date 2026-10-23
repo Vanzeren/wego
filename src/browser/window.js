@@ -35,32 +35,12 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     },
   });
 
-  // Agent-space views live in a SECOND window: shown (so Chromium composites
-  // it and CDP input works — input is silently dropped for views that are
-  // detached, covered, or in unmapped windows), but inactive, off-taskbar,
-  // and re-covered by the main window immediately. On Wayland/KWin a mapped
-  // background window stays compositor-visible.
-  let agentWin = null;
-  function getAgentWin() {
-    if (agentWin) return agentWin;
-    agentWin = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      show: false,
-      skipTaskbar: true,
-      frame: false,
-      backgroundColor: '#17181c',
-      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-    });
-    const [x, y] = win.getPosition();
-    agentWin.setPosition(x, y + 40); // slightly offset; main re-raised below
-    agentWin.showInactive();
-    if (!win.isDestroyed()) win.focus(); // keep the user's window in front
-    return agentWin;
-  }
-
+  // Single window, stacked views. Agent tabs get compositor-primed at
+  // creation (views.js): raised ~600ms showing a pixel-perfect clone of the
+  // user's current content (invisible), then covered — their input pipeline
+  // stays live forever after.
   function windowFor(space) {
-    return space.ownership === 'agent' ? getAgentWin() : win;
+    return win;
   }
 
   // Shared context, late-bound as modules come up.
@@ -70,7 +50,6 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     httpEndpoint,
     downloads: new Map(), // url → { savePath, filename, state } (views.js fills)
     windowFor,
-    primingCount: 0, // >0 while a new view is on top for compositor priming
     spaces: () => spaces,
     activeTabWc: () => {
       const space = spaces.getActive();
@@ -84,15 +63,6 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
       : { x: SIDEBAR_WIDTH, y: CHROME_HEIGHT, width: 1200, height: 800 },
     layoutViews,
     pushState,
-    // Screenshot of the content currently on top, as a data URL sized in CSS
-    // px — used by views.js for invisible compositor priming.
-    captureTopView: async () => {
-      const top = currentTop;
-      if (!top || top.webContents.isDestroyed()) return null;
-      const img = await top.webContents.capturePage();
-      if (img.isEmpty()) return null;
-      return 'data:image/png;base64,' + img.toPNG().toString('base64');
-    },
   };
 
   const zoomGlue = {
@@ -182,17 +152,7 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
   function layoutViews() {
     if (win.isDestroyed()) return;
     const prevMainTop = currentTop;
-    // Views live in the window they were created in (tab._win), which may
-    // differ from the space's current ownership after a claim.
-    const mainSpaces = spaces.allSpaces().filter((s) => s.tabs.some((t) => t._win === win));
-    const agentSpaces = agentWin ? spaces.allSpaces().filter((s) => s.tabs.some((t) => t._win === agentWin)) : [];
-    const active = spaces.getActive();
-    const activeInMain = active && active.tabs.some((t) => t._win === win) ? active : null;
-    layoutWindow(win, mainSpaces, activeInMain ?? mainSpaces[0] ?? null);
-    if (agentWin) {
-      const activeInAgent = active && active.tabs.some((t) => t._win === agentWin) ? active : null;
-      layoutWindow(agentWin, agentSpaces, activeInAgent ?? agentSpaces[agentSpaces.length - 1] ?? null);
-    }
+    layoutWindow(win, spaces.allSpaces(), spaces.getActive());
     // the findbar floats above page content in the main window
     if (findbar.isVisible() && findbar.view()) {
       findbar.raise();

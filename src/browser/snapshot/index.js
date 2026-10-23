@@ -46,6 +46,12 @@ export function configureSnapshot({ webSocketDebuggerUrl } = {}) {
   cdp = webSocketDebuggerUrl ? new MainCdpClient(webSocketDebuggerUrl) : null;
 }
 
+// Shared browser-level CDP client for main-process users (snapshot engine,
+// view priming probes). Null until configureSnapshot runs.
+export function getMainCdp() {
+  return cdp;
+}
+
 // Ref ranges: the top document owns 1..REF_BLOCK-1, each OOPIF capture gets
 // one block so merged refIds never collide.
 const REF_BLOCK = 100000;
