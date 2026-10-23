@@ -136,6 +136,13 @@ export async function startBridgeServer({ spaces, windowApi, cdpServer }) {
   const dispatch = {
     ping: () => 'pong',
 
+    // Bring the browser window to the front (agents can surface results to
+    // the user without them hunting for the window).
+    focusWindow: () => {
+      windowApi.focus();
+      return 'focused.';
+    },
+
     getBrowserVersion: () => ({
       currentVersion: '0.1.0',
       updateAvailable: false,

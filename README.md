@@ -7,6 +7,8 @@ port of [ego-lite](https://github.com/citrolabs/ego-lite) and has since grown
 its own product direction (cross-origin OOPIF snapshots, profiles, Chrome
 onboarding, persistent spaces, HiDPI zoom, frameless UI).
 
+![wego browsing its own repository — agent task spaces in the sidebar, your page in front](docs/screenshots/hero.png)
+
 Built on Electron 38 (Chromium) + Node.js. Zero npm dependencies.
 
 ```
