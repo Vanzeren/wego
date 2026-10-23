@@ -29,7 +29,7 @@ Built on Electron 38 (Chromium) + Node.js. Zero npm dependencies.
 ## Install
 
 **AppImage (recommended):** download `wego-<version>-x86_64.AppImage` from
-[Releases](https://github.com/wzr666/wego/releases), `chmod +x`, run it.
+[Releases](https://github.com/Vanzeren/wego/releases), `chmod +x`, run it.
 Then install the CLI for your agents:
 
 ```bash
@@ -41,7 +41,7 @@ echo 'export WEGO_ELECTRON="$HOME/Applications/wego-0.1.0-x86_64.AppImage"' >> ~
 **From source:**
 
 ```bash
-git clone https://github.com/wzr666/wego && cd wego
+git clone https://github.com/Vanzeren/wego && cd wego
 npm ci          # pinned Electron (devDependency) — reproducible
 npm start       # launch the browser
 npm link        # optional: put `wego-browser` on PATH

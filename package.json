@@ -9,9 +9,9 @@
   "author": "wego contributors",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wzr666/wego"
+    "url": "https://github.com/Vanzeren/wego"
   },
-  "homepage": "https://github.com/wzr666/wego",
+  "homepage": "https://github.com/Vanzeren/wego",
   "scripts": {
     "start": "electron .",
     "cli": "node bin/wego-browser",
