@@ -1,19 +1,30 @@
 // Site learnings: reusable per-site automation experience.
 // Layout: <learningsDir>/<site>/manifest.json { domains: [...], notes: [...] }
-// + notes/*.md. Pure fs; no electron.
+// + notes/*.md + tools/*.mjs + browser-tools/*.js.
+//
+// PRIVACY: learnings default to ~/.wego/learnings (user-local, never
+// published). The repo ships only the impersonal example under
+// skills/wego-browser/learnings-example/ — see AGENTS.md ("never commit
+// real learnings").
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_DIR = path.resolve(
+const BUNDLED_EXAMPLE_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../skills/wego-browser/learnings',
+  '../../skills/wego-browser/learnings-example',
 );
 
 export function learningsDir() {
-  return process.env.WEGO_BROWSER_AGENT_WORKSPACE
-    ? path.join(process.env.WEGO_BROWSER_AGENT_WORKSPACE, 'learnings')
-    : DEFAULT_DIR;
+  if (process.env.WEGO_BROWSER_AGENT_WORKSPACE) {
+    return path.join(process.env.WEGO_BROWSER_AGENT_WORKSPACE, 'learnings');
+  }
+  return path.join(os.homedir(), '.wego', 'learnings');
+}
+
+export function bundledExampleDir() {
+  return BUNDLED_EXAMPLE_DIR;
 }
 
 // domain match: exact host or subdomain of a manifest domain

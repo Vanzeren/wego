@@ -72,6 +72,11 @@ Electron instances: the app holds a single-instance lock. `pkill -f
 
 ## Conventions
 
+- **Privacy (open-source hygiene): real site learnings NEVER go in the repo.**
+  They live in `~/.wego/learnings/`. The repo carries only the impersonal
+  format example `skills/wego-browser/learnings-example/`; `learnings/` is
+  gitignored as a second line of defense. Before publishing, audit
+  `git grep -i` for personal info anyway.
 - Public helper/API changes: update `skill-body/SKILL.md` (the guide printed
   by `wego-browser skill`) and README in the same commit.
 - Agent-facing semantics follow upstream ego-lite docs; deviate only for real

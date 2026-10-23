@@ -32,12 +32,31 @@ test('readLearningNotes returns note content; unknown host returns null', (t) =>
   assert.equal(readLearningNotes('nope.io'), null);
 });
 
-test('real learnings dir contains mail.qq.com with notes', () => {
+test('user learnings dir (~/.wego) contains mail.qq.com with notes', () => {
   delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
   const hit = findLearning('wx.mail.qq.com');
   assert.ok(hit);
   const notes = readLearningNotes('mail.qq.com');
   assert.match(notes, /cmp-account-input/);
+});
+
+test('bundled example (publishable) exposes readPageInfo browser-tool', async () => {
+  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+  const mod = await import('../skills/wego-browser/learnings-example/example.com/browser-tools/readPageInfo.js');
+  const fakeDoc = {
+    title: 'Example Domain',
+    querySelector(sel) {
+      if (sel === 'h1') return { textContent: 'Example Domain' };
+      if (sel === 'a') return { href: 'https://example.com/more' };
+      return null;
+    },
+  };
+  globalThis.document = fakeDoc;
+  try {
+    assert.deepEqual(mod.default(), { title: 'Example Domain', heading: 'Example Domain', firstLink: 'https://example.com/more' });
+  } finally {
+    delete globalThis.document;
+  }
 });
 
 test('hostOf parses urls; bare hosts return null (learnContext passes them through)', () => {
@@ -70,7 +89,7 @@ test('runSiteBrowserTool rejects undeclared browser-tools', async () => {
 // The real compose browser-tool: in-page DOM read of a fake compose form.
 test('readCompose browser-tool reads recipients/subject/body', async () => {
   delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
-  const mod = await import('../skills/wego-browser/learnings/mail.qq.com/browser-tools/readCompose.js');
+  const mod = await import(process.env.HOME + '/.wego/learnings/mail.qq.com/browser-tools/readCompose.js');
   const fn = mod.default;
   const fakeDoc = {
     querySelector(sel) {

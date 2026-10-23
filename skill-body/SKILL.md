@@ -307,19 +307,29 @@ await page.acceptDialog("prompt response");
 
 ## Site learnings (experience that accumulates)
 
-Hard-won per-site playbooks live in `skills/wego-browser/learnings/<site>/`.
+Hard-won per-site playbooks live in `~/.wego/learnings/<site>/` — the user's
+local directory, never published with the repo (the repo carries only the
+impersonal format example under `skills/wego-browser/learnings-example/`).
 When `page.goto()` lands on a host with a learning, the script prints
 `[wego-learn] notes available for <host>` — read them before acting:
 
 ```js
-learnContext("mail.qq.com"); // print the site's notes
+learnContext("mail.qq.com"); // notes + executable tools for the site
 learnContext();              // list sites that have learnings
 ```
 
+A learning may also carry executable tools. Notes say HOW; tools DO it:
+
+```js
+await runSiteTool("mail.qq.com", "compose", { page, to, subject, body });
+await runSiteBrowserTool(page, "mail.qq.com", "readCompose");
+```
+
 When a task on a site required non-obvious workarounds (custom widgets,
-shadow DOM traps, anti-automation quirks), record what worked as a new note
-under that site's `notes/` and register it in `manifest.json` — the next task
-on the site gets it for free.
+shadow DOM traps, anti-automation quirks), record what worked AND what failed
+(a "失败路径" section) as a new note under that site's `notes/` plus an entry
+in `manifest.json`. NEVER write learnings into the repo's skills/ directory —
+they go to `~/.wego/learnings/` so open-sourcing the repo leaks nothing.
 
 ## User control and completion
 

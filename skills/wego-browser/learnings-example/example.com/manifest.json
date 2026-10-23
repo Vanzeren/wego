@@ -1,0 +1,8 @@
+{
+  "site": "example.com",
+  "domains": ["example.com", "www.example.com"],
+  "intents": ["read page", "follow link"],
+  "notes": ["notes/basics.md"],
+  "tools": [],
+  "browserTools": ["readPageInfo"]
+}

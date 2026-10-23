@@ -4,15 +4,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../skills/wego-browser/learnings');
+const repoExample = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../skills/wego-browser/learnings-example');
+const userDir = process.env.HOME + '/.wego/learnings';
 let failed = 0;
 const fail = (msg) => { failed++; console.error(`not ok - ${msg}`); };
 
-const sites = fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()) : [];
+const sites = [];
+for (const dir of [repoExample, userDir]) {
+  if (!fs.existsSync(dir)) continue;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) sites.push({ name: e.name, _dir: dir });
+  }
+}
 if (!sites.length) fail('no learnings found');
 
 for (const site of sites) {
-  const root = path.join(dir, site.name);
+  const root = path.join(site._dir, site.name);
   let m;
   try {
     m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
