@@ -4,7 +4,7 @@
 import { connectWego } from '../client/wego.js';
 import { CDPManager, CDPError } from './cdp.js';
 import { TaskSpace } from './task-space.js';
-import { learningsDir, readLearningNotes, hostOf } from './learning.js';
+import { learningsDir, readLearningNotes, hostOf, listSiteTools, runSiteTool, runSiteBrowserTool } from './learning.js';
 import fs from 'node:fs';
 
 const HELP = {
@@ -113,10 +113,20 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
     }
     const host = hostOf(urlOrHost) ?? urlOrHost;
     const notes = readLearningNotes(host);
-    cliLog(notes ?? `no learning for ${host}`);
+    if (notes) {
+      cliLog(notes);
+      const tools = listSiteTools(host);
+      if (tools && (tools.tools.length || tools.browserTools.length)) {
+        cliLog(`[wego-learn] executable tools for ${tools.site}: ` +
+          [tools.tools.map((n) => `runSiteTool("${tools.site}", "${n}", args)`),
+           tools.browserTools.map((n) => `runSiteBrowserTool(page, "${tools.site}", "${n}", arg)`)].flat().join(' | '));
+      }
+      return;
+    }
+    cliLog(`no learning for ${host}`);
   }
 
-  const helpers = { taskSpace, listTaskSpaces, claimTaskSpace, takeOverTaskSpace, help, cliLog, learnContext };
+  const helpers = { taskSpace, listTaskSpaces, claimTaskSpace, takeOverTaskSpace, help, cliLog, learnContext, runSiteTool, runSiteBrowserTool };
   const names = Object.keys(helpers);
 
   let exitCode = 0;

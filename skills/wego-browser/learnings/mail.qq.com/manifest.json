@@ -1,5 +1,8 @@
 {
   "site": "mail.qq.com",
   "domains": ["mail.qq.com", "wx.mail.qq.com"],
-  "notes": ["notes/compose.md"]
+  "intents": ["compose email", "reply email", "send mail", "写信", "回邮件"],
+  "notes": ["notes/compose.md"],
+  "tools": ["compose"],
+  "browserTools": ["readCompose"]
 }

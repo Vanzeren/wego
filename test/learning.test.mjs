@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { findLearning, readLearningNotes, hostOf, learningsDir } from '../src/runtime/learning.js';
+import { findLearning, readLearningNotes, hostOf, learningsDir, listSiteTools, runSiteTool, runSiteBrowserTool } from '../src/runtime/learning.js';
 
 function withLearningDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wego-learn-'));
@@ -45,4 +45,46 @@ test('hostOf parses urls; bare hosts return null (learnContext passes them throu
   assert.equal(hostOf('mail.qq.com'), null);
   assert.equal(hostOf('not a url'), null);
   assert.ok(learningsDir().endsWith('learnings'));
+});
+
+test('listSiteTools exposes tools/browserTools/intents for mail.qq.com', () => {
+  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+  const tools = listSiteTools('wx.mail.qq.com');
+  assert.ok(tools.tools.includes('compose'));
+  assert.ok(tools.browserTools.includes('readCompose'));
+  assert.ok(tools.intents.length > 0);
+  assert.equal(listSiteTools('unknown.io'), null);
+});
+
+test('runSiteTool rejects unknown sites and undeclared tools', async () => {
+  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+  await assert.rejects(() => runSiteTool('unknown.io', 'x'), /no learning/);
+  await assert.rejects(() => runSiteTool('mail.qq.com', 'nope'), /no tool "nope"/);
+});
+
+test('runSiteBrowserTool rejects undeclared browser-tools', async () => {
+  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+  await assert.rejects(() => runSiteBrowserTool({}, 'mail.qq.com', 'nope'), /no browser-tool "nope"/);
+});
+
+// The real compose browser-tool: in-page DOM read of a fake compose form.
+test('readCompose browser-tool reads recipients/subject/body', async () => {
+  delete process.env.WEGO_BROWSER_AGENT_WORKSPACE;
+  const mod = await import('../skills/wego-browser/learnings/mail.qq.com/browser-tools/readCompose.js');
+  const fn = mod.default;
+  const fakeDoc = {
+    querySelector(sel) {
+      if (sel === '.receiver-editor-wrap') return { textContent: '收件人 campus@dewu.com 抄送' };
+      if (sel === 'div[contenteditable="true"]') return { textContent: '正文内容' };
+      return null;
+    },
+    querySelectorAll() { return [{ value: '' }, { value: '主题X' }]; },
+  };
+  const page = { evaluate: (f, arg) => { globalThis.document = fakeDoc; try { return f(arg); } finally { delete globalThis.document; } } };
+  globalThis.location = { href: 'https://wx.mail.qq.com/#/compose' };
+  const out = await runSiteBrowserTool(page, 'mail.qq.com', 'readCompose');
+  delete globalThis.location;
+  assert.equal(out.subject, '主题X');
+  assert.equal(out.body, '正文内容');
+  assert.match(out.recipients, /campus@dewu\.com/);
 });

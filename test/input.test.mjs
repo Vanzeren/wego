@@ -69,6 +69,17 @@ test('pressKey on symbols omits code (CDP rejects null)', async () => {
   assert.equal('code' in s.calls[1].params, false); // keyUp too
 });
 
+test('symbols get vk 0, never an ASCII code that collides with VK_DELETE', async () => {
+  const s = recorder();
+  await pressKey(s, '.'); // '.' charCode 46 === VK_DELETE — must NOT be sent as vk
+  assert.equal(s.calls[0].params.windowsVirtualKeyCode, 0);
+  assert.equal(s.calls[0].params.text, '.');
+  await pressKey(s, '5'); // digits keep their vk
+  assert.equal(s.calls[2].params.windowsVirtualKeyCode, 53);
+  await pressKey(s, 'a'); // letters keep theirs
+  assert.equal(s.calls[4].params.windowsVirtualKeyCode, 65);
+});
+
 test('typeText presses every character', async () => {
   const s = recorder();
   await typeText(s, 'abc');

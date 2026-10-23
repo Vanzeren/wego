@@ -35,10 +35,16 @@ function describeSingleKey(key) {
     const upper = ch.toUpperCase();
     // crude but sufficient code/vk mapping for printable ASCII
     let code;
-    if (/[a-zA-Z]/.test(ch)) code = 'Key' + upper;
-    else if (/[0-9]/.test(ch)) code = 'Digit' + ch;
-    else code = null;
-    return { key: ch, code, vk: upper.charCodeAt(0), text: ch, modifier: null };
+    let vk;
+    if (/[a-zA-Z]/.test(ch)) { code = 'Key' + upper; vk = upper.charCodeAt(0); }
+    else if (/[0-9]/.test(ch)) { code = 'Digit' + ch; vk = ch.charCodeAt(0); }
+    else {
+      // Symbols: ASCII codes collide with special VK codes ('.' is 46 =
+      // VK_DELETE!). Send vk 0 (unknown) — text input carries the character.
+      code = null;
+      vk = 0;
+    }
+    return { key: ch, code, vk, text: ch, modifier: null };
   }
   throw Object.assign(new Error(`Unknown key: ${key}`), { error_code: 'WEGO_INVALID_ARGUMENT' });
 }

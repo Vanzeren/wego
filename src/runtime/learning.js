@@ -49,3 +49,43 @@ export function readLearningNotes(host) {
 export function hostOf(url) {
   try { return new URL(url).hostname; } catch { return null; }
 }
+
+// Executable experience: per-site tools.
+//   tools/<name>.mjs          — node-side; export default async (args) => …
+//                               args carries whatever the caller passes (a
+//                               Page under args.page unlocks real input).
+//   browser-tools/<name>.js   — in-page; export default async (arg) => …
+//                               (self-contained; serialized into the page)
+export function listSiteTools(host) {
+  const hit = findLearning(host);
+  if (!hit) return null;
+  return {
+    site: hit.site,
+    tools: hit.manifest.tools ?? [],
+    browserTools: hit.manifest.browserTools ?? [],
+    intents: hit.manifest.intents ?? [],
+  };
+}
+
+export async function runSiteTool(host, name, args = {}) {
+  const hit = findLearning(host);
+  if (!hit) throw new Error(`no learning for ${host}`);
+  if (!(hit.manifest.tools ?? []).includes(name)) {
+    throw new Error(`no tool ${JSON.stringify(name)} in ${hit.site} (have: ${(hit.manifest.tools ?? []).join(', ') || 'none'})`);
+  }
+  const mod = await import(path.join(hit.dir, 'tools', `${name}.mjs`));
+  if (typeof mod.default !== 'function') throw new Error(`tool ${name} has no default export`);
+  return mod.default(args);
+}
+
+export async function runSiteBrowserTool(page, host, name, arg) {
+  const hit = findLearning(host);
+  if (!hit) throw new Error(`no learning for ${host}`);
+  if (!(hit.manifest.browserTools ?? []).includes(name)) {
+    throw new Error(`no browser-tool ${JSON.stringify(name)} in ${hit.site} (have: ${(hit.manifest.browserTools ?? []).join(', ') || 'none'})`);
+  }
+  const mod = await import(path.join(hit.dir, 'browser-tools', `${name}.js`));
+  if (typeof mod.default !== 'function') throw new Error(`browser-tool ${name} has no default export`);
+  return page.evaluate(mod.default, arg);
+}
+
