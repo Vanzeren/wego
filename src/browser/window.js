@@ -120,22 +120,32 @@ export function createMainWindow({ httpEndpoint, stateDir } = {}) {
     }
     const active = spaces.getActive();
     const top = active?.tabs.find((t) => t.targetId === active.activeTargetId)?.view ?? null;
-    if (top && top !== currentTop) {
-      currentTop = top;
-      // the find selection belongs to the previous tab
-      if (findbar.isVisible()) {
+    // Self-healing z-order: createView's addChildView puts NEW views on top,
+    // which would leave an agent tab covering the user's page. Verify the
+    // actual tail order instead of trusting currentTop bookkeeping.
+    const wantTail = [];
+    if (top) wantTail.push(top);
+    if (findbar.isVisible() && findbar.view()) wantTail.push(findbar.view());
+    const children = win.contentView.children;
+    const tail = children.slice(-wantTail.length);
+    const ordered = wantTail.length > 0 && wantTail.every((v, i) => tail[i] === v);
+    if (!ordered) {
+      if (top !== currentTop && findbar.isVisible()) {
+        // tab actually switched: the find selection belongs to the old tab
         findbar.hide();
         findbar.clearText();
       }
-      try {
-        win.contentView.removeChildView(top); // re-add => top of z-order
-        win.contentView.addChildView(top);
-      } catch { /* view race */ }
-    }
-    // the findbar floats above page content
-    if (findbar.isVisible() && findbar.view()) {
-      findbar.raise();
-      findbar.view().setBounds(findbar.bounds()); // track resize/zoom
+      if (top) {
+        try {
+          win.contentView.removeChildView(top); // re-add => top of z-order
+          win.contentView.addChildView(top);
+        } catch { /* view race */ }
+      }
+      if (findbar.isVisible() && findbar.view()) {
+        findbar.raise();
+        findbar.view().setBounds(findbar.bounds()); // track resize/zoom
+      }
+      currentTop = top;
     }
   }
 
