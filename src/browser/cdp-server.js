@@ -132,6 +132,7 @@ export class VirtualCdpServer {
       children: new Map(), // realSid -> { targetId, type, title, url, owners: Map<virtualSid, vs> }
       claimedSids: new Set(), // realSids an explicit attach claimed mid-enumeration
       pendingUnknown: new Map(), // realSid -> buffered events (in-flight attaches)
+      pendingAttachTargets: new Map(), // targetId -> number of explicit attaches in flight
       enumerating: null, // Map<realSid, targetInfo> while an enumeration cycle runs
       enumPromise: null, // in-flight _enumerateRecordFrames (shared)
       onMessage: null,
@@ -251,7 +252,18 @@ export class VirtualCdpServer {
       vs.client.sessions.delete(vs.id);
       this._push(vs.client, { method: 'Target.detachedFromTarget', params: { sessionId: vs.id } });
     }
-    this._records.delete(record.wc);
+    const { wc } = record;
+    try { wc.debugger.removeListener('message', record.onMessage); } catch { /* gone */ }
+    try { wc.debugger.removeListener('detach', record.onDetach); } catch { /* gone */ }
+    try { wc.removeListener('destroyed', record.onDestroyed); } catch { /* gone */ }
+    record.domains.clear();
+    record.children.clear();
+    record.pendingUnknown.clear();
+    record.pendingAttachTargets.clear();
+    record.autoAttachArmed.clear();
+    record.claimedSids.clear();
+    record.enumerating = null;
+    if (this._records.get(wc) === record) this._records.delete(wc);
   }
 
   // ---- debugger event routing -------------------------------------------
@@ -305,9 +317,9 @@ export class VirtualCdpServer {
       return;
     }
     if (record.children.has(realSid)) return; // explicit attach already mapped
-    if (!record.autoAttachArmed.size) {
-      // No virtual page session armed auto-attach: an explicit
-      // Target.attachToTarget is in flight and will claim this realSid.
+    if (record.pendingAttachTargets.has(targetInfo.targetId) || !record.autoAttachArmed.size) {
+      // An explicit attach claims its own early event even when another page
+      // session has auto-attach armed; its continuation will flush this buffer.
       if (!record.pendingUnknown.has(realSid)) record.pendingUnknown.set(realSid, []);
       return;
     }
@@ -460,6 +472,7 @@ export class VirtualCdpServer {
           await this._release(parentWc);
           return {};
         }
+        record.pendingAttachTargets.set(targetId, (record.pendingAttachTargets.get(targetId) ?? 0) + 1);
         try {
           const { sessionId: realSid } = await this._cmd(record, 'Target.attachToTarget', { targetId, flatten: true });
           // Mark BEFORE the continuation continues: a concurrent enumeration
@@ -471,13 +484,18 @@ export class VirtualCdpServer {
             return {};
           }
           const vs = this._newSession(client, { kind: 'frame', targetId, wc: parentWc, realSid, holdsRef: true });
-          const child = { targetId, type: 'iframe', owners: new Map([[vs.id, vs]]) };
+          const child = record.children.get(realSid) ?? { targetId, type: 'iframe', owners: new Map() };
+          child.owners.set(vs.id, vs);
           record.children.set(realSid, child);
           this._flushPending(record, realSid, child);
           return { sessionId: vs.id };
         } catch (e) {
           await this._release(parentWc);
           throw e;
+        } finally {
+          const pending = record.pendingAttachTargets.get(targetId) ?? 1;
+          if (pending === 1) record.pendingAttachTargets.delete(targetId);
+          else record.pendingAttachTargets.set(targetId, pending - 1);
         }
       }
 
@@ -587,27 +605,37 @@ export class VirtualCdpServer {
       if (params.flatten !== true) {
         throw cdpError(-32602, 'Only flatten sessions are supported');
       }
-      const { sessionId: realSid } = await this._cmd(record, 'Target.attachToTarget', {
-        targetId: params.targetId, flatten: true,
-      });
-      // Mark before the continuation runs (enumeration-cleanup race guard).
-      record.claimedSids.add(realSid);
-      const knownType = [...record.children.values()].find((c) => c.targetId === params.targetId)?.type ?? 'iframe';
-      const childVs = this._newSession(vs.client, {
-        kind: 'frame', targetId: params.targetId, wc: vs.wc, realSid, holdsRef: false,
-        parentSid: vs.id,
-      });
-      const child = { targetId: params.targetId, type: knownType, owners: new Map([[childVs.id, childVs]]) };
-      record.children.set(realSid, child);
-      this._flushPending(record, realSid, child);
-      return { sessionId: childVs.id };
+      record.pendingAttachTargets.set(params.targetId, (record.pendingAttachTargets.get(params.targetId) ?? 0) + 1);
+      try {
+        const { sessionId: realSid } = await this._cmd(record, 'Target.attachToTarget', {
+          targetId: params.targetId, flatten: true,
+        });
+        // Mark before the continuation runs (enumeration-cleanup race guard).
+        record.claimedSids.add(realSid);
+        const knownType = [...record.children.values()].find((c) => c.targetId === params.targetId)?.type ?? 'iframe';
+        const childVs = this._newSession(vs.client, {
+          kind: 'frame', targetId: params.targetId, wc: vs.wc, realSid, holdsRef: false,
+          parentSid: vs.id,
+        });
+        const child = record.children.get(realSid) ?? {
+          targetId: params.targetId, type: knownType, owners: new Map(),
+        };
+        child.owners.set(childVs.id, childVs);
+        record.children.set(realSid, child);
+        this._flushPending(record, realSid, child);
+        return { sessionId: childVs.id };
+      } finally {
+        const pending = record.pendingAttachTargets.get(params.targetId) ?? 1;
+        if (pending === 1) record.pendingAttachTargets.delete(params.targetId);
+        else record.pendingAttachTargets.set(params.targetId, pending - 1);
+      }
     }
 
     if (method === 'Target.detachFromTarget') {
       const child = this._sessions.get(params.sessionId);
       if (!child || child.client !== vs.client || child.detached) throw noSuchSession();
-      // page sessions may only detach subtarget sessions they spawned
-      if (vs.kind === 'page' && child !== vs && child.parentSid !== vs.id) throw noSuchSession();
+      // Sessions may only detach themselves or subtarget sessions they spawned.
+      if (child !== vs && child.parentSid !== vs.id) throw noSuchSession();
       await this._detachSession(child);
       return {};
     }
@@ -729,21 +757,39 @@ export class VirtualCdpServer {
   async _enumerateFrames() {
     const iframes = [];
     const index = new Map();
+    const activeWcs = new Set();
+    const collect = async (record) => {
+      for (const ti of await this._enumerateRecordFrames(record)) {
+        index.set(ti.targetId, record.wc);
+        iframes.push({
+          targetId: ti.targetId,
+          type: 'iframe',
+          title: ti.title ?? '',
+          url: ti.url ?? '',
+          attached: [...record.children.values()].some((c) => c.targetId === ti.targetId),
+          canAccessOpener: false,
+        });
+      }
+    };
     for (const record of this._records.values()) {
       if (!record.attached || record.dead || record.wc.isDestroyed()) continue;
+      activeWcs.add(record.wc);
+      try { await collect(record); } catch { /* record died mid-enumeration */ }
+    }
+    // A cold tab has no record yet, but its OOPIFs are still part of the
+    // browser target list. Borrow its debugger only for this enumeration.
+    for (const target of this._listTargets()) {
+      const wc = this._resolveWc(target.targetId);
+      if (!wc || wc.isDestroyed() || activeWcs.has(wc)) continue;
+      let record;
       try {
-        for (const ti of await this._enumerateRecordFrames(record)) {
-          index.set(ti.targetId, record.wc);
-          iframes.push({
-            targetId: ti.targetId,
-            type: 'iframe',
-            title: ti.title ?? '',
-            url: ti.url ?? '',
-            attached: [...record.children.values()].some((c) => c.targetId === ti.targetId),
-            canAccessOpener: false,
-          });
-        }
-      } catch { /* record died mid-enumeration */ }
+        record = await this._acquire(wc);
+        activeWcs.add(wc);
+        await collect(record);
+      } catch { /* target closed or record died mid-enumeration */ }
+      finally {
+        if (record) await this._release(wc);
+      }
     }
     this._iframeIndex = index;
     return iframes;

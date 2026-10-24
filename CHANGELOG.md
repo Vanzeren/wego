@@ -4,6 +4,30 @@ All notable changes to wego are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Preserve non-ASCII bridge/CDP payloads when UTF-8 characters span socket
+  chunks instead of silently inserting replacement characters.
+- Return an adopted `Page` from `waitForEvent("popup")`, make string-value
+  `selectOption()` work, and surface in-page selection exceptions.
+- Keep user and unknown-origin Pages during `finish()`; claimed/taken-over
+  spaces no longer close all pre-existing tabs during routine cleanup.
+- Clamp UI zoom to the validated 50%–200% range so zooming at the upper bound
+  no longer throws `WEGO_INVALID_ARGUMENT`.
+- Enumerate OOPIF targets on cold tabs, isolate explicit/auto-attach child
+  sessions, restrict frame detach permissions, and clean debugger listeners
+  and session state on renderer detach.
+- Reject inherited bridge method names and prototype-property setting keys
+  instead of treating them as valid APIs or preferences.
+- Make space restoration atomic for corrupt payloads, keep restored id
+  allocation monotonic, resolve agent-name collisions deterministically, and
+  block takeover of user-owned spaces.
+- Use a scoped Firefox-compatible identity on `accounts.google.com` so Google
+  OAuth can proceed, restoring the normal UA on every non-Google request and
+  navigation instead of changing cookies or disabling security features.
+
 ## [0.1.0] — 2026-10-23
 
 First public-ready state. wego is a Linux browser that shares your logged-in

@@ -2,7 +2,7 @@
 // before-input-event handlers and settings persistence.
 
 export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 3.0;
+export const ZOOM_MAX = 2.0;
 const STEP = 1.1;
 
 // dir: +1 in, -1 out, 0 reset. Result rounded to 2 decimals, clamped.

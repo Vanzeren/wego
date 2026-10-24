@@ -50,11 +50,11 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
   const cdp = new CDPManager(ego);
   const ctx = { ego, cdp };
 
-  async function materialize(descriptor) {
+  async function materialize(descriptor, openedBy = 'agent') {
     const space = new TaskSpace(ctx, descriptor);
     // map existing tabs: first tab → p1, then p2…
     const { tabs } = await ego._call('listTabs', { id: descriptor.id }).catch(() => ({ tabs: [] }));
-    for (const t of tabs) space._adoptTarget(t.targetId, 'agent');
+    for (const t of tabs) space._adoptTarget(t.targetId, openedBy);
     return space;
   }
 
@@ -85,7 +85,7 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
     const descriptor = await ego.claimTaskSpace(id, name);
     const { taskSpaces } = await ego.listTaskSpaces();
     const found = taskSpaces.find((s) => s.id === descriptor.id) || {};
-    return materialize({ ...found, ...descriptor });
+    return materialize({ ...found, ...descriptor }, 'unknown');
   }
 
   async function takeOverTaskSpace(id) {
@@ -95,7 +95,7 @@ export async function runScript(source, { scriptName = 'script' } = {}) {
     const found = taskSpaces.find((s) => s.id === id);
     if (!found) throw new CDPError(`Task space not found: ${id}`, 'WEGO_TASK_SPACE_NOT_FOUND');
     const descriptor = await ego.claimTaskSpace(id);
-    return materialize({ ...found, ...descriptor });
+    return materialize({ ...found, ...descriptor }, 'unknown');
   }
 
   async function listTaskSpaces() {

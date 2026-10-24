@@ -48,6 +48,40 @@ test('claimTaskSpace flips ownership, renames, syncs taskId', () => {
   try { sm.claimTaskSpace({ id: 99 }); } catch (e) { assert.equal(e.error_code, 'WEGO_TASK_SPACE_NOT_FOUND'); }
 });
 
+test('createTaskSpace resumes an agent-owned namesake after a user-owned entry', () => {
+  const sm = makeManager();
+  const user = sm.createUserSpace('shared');
+  const claimant = sm.createUserSpace('claimant');
+  const agent = sm.claimTaskSpace({ id: claimant.id, name: 'shared' });
+
+  const resumed = sm.createTaskSpace({ name: 'shared' });
+  assert.equal(resumed.id, agent.id);
+  assert.equal(sm.getSpace(user.id).ownership, 'user');
+
+  // Claiming a user space to its existing name remains legal even when an
+  // agent-owned namesake already exists.
+  const claimed = sm.claimTaskSpace({ id: user.id, name: 'shared' });
+  assert.equal(claimed.name, 'shared');
+  assert.equal(sm.getSpace(user.id).ownership, 'agent');
+  assert.equal(sm.getSpace(user.id).control, 'agent');
+});
+
+test('claimTaskSpace rejects another agent-owned name without mutating the user space', () => {
+  const sm = makeManager();
+  const user = sm.createUserSpace('original');
+  sm.createTaskSpace({ name: 'occupied' });
+
+  assert.throws(
+    () => sm.claimTaskSpace({ id: user.id, name: 'occupied' }),
+    (e) => e.error_code === 'WEGO_TASK_SPACE_NAME_IN_USE',
+  );
+  const space = sm.getSpace(user.id);
+  assert.equal(space.name, 'original');
+  assert.equal(space.taskId, 'original');
+  assert.equal(space.ownership, 'user');
+  assert.equal(space.control, 'user');
+});
+
 test('handoff gates tab ops; takeover restores', () => {
   const sm = makeManager();
   sm.createPersonalSpace();
@@ -62,6 +96,15 @@ test('handoff gates tab ops; takeover restores', () => {
   assert.equal(sm.takeOverTaskSpace({ id: t.id }), `${t.id} has been taken over by the agent.`);
   const tab = sm.createTab(t.id, 'http://x/');
   assert.ok(tab.targetId);
+});
+
+test('takeOverTaskSpace rejects user-owned spaces without changing ownership or control', () => {
+  const sm = makeManager();
+  const personal = sm.createPersonalSpace();
+
+  assert.throws(() => sm.takeOverTaskSpace({ id: personal.id }));
+  assert.equal(sm.getSpace(personal.id).ownership, 'user');
+  assert.equal(sm.getSpace(personal.id).control, 'user');
 });
 
 test('user-control gating also blocks snapshot-class reads like listTabs? no: listTabs is gated, listTaskSpaces is not', () => {
@@ -199,6 +242,74 @@ test('resuming an agent space by name after restore flips control back to agent'
   const resumed = sm2.createTaskSpace({ name: 'resume-me' });
   assert.equal(resumed.id, t.id);
   assert.equal(sm2.getSpace(t.id).control, 'agent');
+});
+
+test('restoreState rejects null space and tab entries without partial state or views', () => {
+  const source = makeManager();
+  source.createTaskSpace({ name: 'valid' });
+  const valid = source.serializeState().spaces[0];
+
+  for (const spaces of [
+    [valid, null],
+    [{ ...valid, tabs: [null] }],
+  ]) {
+    let views = 0;
+    const sm = makeManager({ createView: () => { views++; return null; } });
+    assert.equal(sm.restoreState({ spaces }), false);
+    assert.deepEqual(sm.allSpaces(), []);
+    assert.equal(sm.getActive(), null);
+    assert.equal(views, 0);
+  }
+});
+
+test('restoreState rejects duplicate space ids without modifying existing state', () => {
+  let views = 0;
+  const sm = makeManager({ createView: () => { views++; return null; } });
+  const existing = sm.createUserSpace('existing');
+  sm.addUserTab(existing.id, 'http://existing/');
+  const before = sm.serializeState();
+  views = 0;
+  const saved = {
+    id: 7,
+    name: 'restored',
+    createdBy: 'agent',
+    ownership: 'agent',
+    profileId: 'Default',
+    profileName: 'Default',
+    agentState: '',
+    activeTabIndex: 0,
+    tabs: [{ url: 'http://restored/', title: '' }],
+  };
+
+  assert.equal(sm.restoreState({
+    nextSpaceId: 8,
+    activeSpaceId: 7,
+    spaces: [saved, { ...saved, name: 'duplicate' }],
+  }), false);
+  assert.deepEqual(sm.serializeState(), before);
+  assert.equal(sm.getSpace(existing.id), existing);
+  assert.equal(views, 0);
+});
+
+test('restoreState allocates new ids above restored ids when nextSpaceId is missing or stale', () => {
+  for (const nextSpaceId of [undefined, 2]) {
+    const sm = makeManager();
+    const saved = {
+      id: 7,
+      name: 'restored',
+      createdBy: 'agent',
+      ownership: 'agent',
+      profileId: 'Default',
+      activeTabIndex: 0,
+      tabs: [{ url: 'http://restored/', title: '' }],
+    };
+    const data = { spaces: [saved], activeSpaceId: 7 };
+    if (nextSpaceId !== undefined) data.nextSpaceId = nextSpaceId;
+
+    assert.equal(sm.restoreState(data), true);
+    const fresh = sm.createTaskSpace({ name: 'fresh' });
+    assert.ok(fresh.id >= 8, `nextSpaceId=${nextSpaceId} produced id ${fresh.id}`);
+  }
 });
 
 test('restoreState rejects corrupt data and activeTabIndex is honored', () => {

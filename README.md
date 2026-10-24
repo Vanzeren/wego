@@ -114,8 +114,10 @@ Full guide, Python variant, and browser-use compatibility status:
 - Task spaces: create / resume-by-name / claim / list, numeric ids, ownership
   (`user`/`agent`) and control state; user-control gating returns
   `WEGO_TASK_SPACE_USER_IN_CONTROL` and blocks tabs, snapshot, and raw CDP.
-- Handoff / takeover (`task.handOff()`, `takeOverTaskSpace(id)`), agent
-  progress text, `finish({ keep })` semantics.
+- Handoff / takeover (`task.handOff()`, `takeOverTaskSpace(id)` for
+  agent-owned spaces; claim user-owned spaces), agent progress text, and safe
+  `finish({ keep })` cleanup: only agent-created Pages close automatically;
+  user/unknown-origin Pages are preserved.
 - Shared profile: all Default-profile spaces share `persist:default`, so
   agent spaces inherit your logins. Extra profiles
   (`wego-browser profiles create <name>`) get isolated cookie/storage
@@ -158,6 +160,9 @@ Full guide, Python variant, and browser-use compatibility status:
 - There is no TCP debug endpoint: raw CDP tunnels over the `0600` bridge
   socket. `WEGO_DEBUG_PORT` re-enables Chromium's unauthenticated 127.0.0.1
   DevTools server for local development — never set it on shared machines.
+- Google OAuth compatibility uses a Firefox user agent only on
+  `accounts.google.com`; other origins keep the normal wego/Chromium UA.
+  Availability still depends on Google's current sign-in policies.
 
 ## Layout
 

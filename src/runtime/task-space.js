@@ -125,8 +125,8 @@ export class TaskSpace {
     return result;
   }
 
-  // exactly-once: keep-labels' tabs detach to user, agent tabs closed,
-  // then completeTaskSpace when keeps remain else closeTaskSpace.
+  // exactly-once: keep-labels and non-agent tabs detach to user, agent tabs
+  // close, then complete when anything remains else close the whole space.
   async finish({ keep = [] } = {}) {
     if (this._finished) return;
     this._finished = true;
@@ -135,8 +135,10 @@ export class TaskSpace {
     const ego = this._ctx.ego;
     ego.useTaskSpace(this.spaceId);
     const keepSet = new Set(keep);
+    let preserved = false;
     for (const [label, p] of [...this._pages]) {
-      if (keepSet.has(label)) {
+      if (keepSet.has(label) || p.openedBy !== 'agent') {
+        if (p.openedBy !== 'agent') preserved = true;
         this._ctx.cdp.detach(p.targetId);
         this._removePage(label);
       } else {
@@ -144,7 +146,7 @@ export class TaskSpace {
         this._removePage(label);
       }
     }
-    if (keep.length) {
+    if (keep.length || preserved) {
       await ego.completeTaskSpace().catch(() => {});
     } else {
       await ego.closeTaskSpace().catch(() => {});

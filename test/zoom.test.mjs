@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { nextZoom, nextZoomLevel, zoomFromKey, ZOOM_MIN, ZOOM_MAX, LEVEL_MIN, LEVEL_MAX } from '../src/browser/zoom.js';
+import { createSettings } from '../src/browser/settings.js';
 
 test('nextZoom steps in/out and resets', () => {
   assert.equal(nextZoom(1, 1), 1.1);
@@ -45,4 +46,19 @@ test('nextZoomLevel steps in 0.5 levels, resets to 0, clamps', () => {
   assert.equal(nextZoomLevel(2, 0), 0);
   assert.equal(nextZoomLevel(LEVEL_MAX, 1), LEVEL_MAX);
   assert.equal(nextZoomLevel(LEVEL_MIN, -1), LEVEL_MIN);
+});
+
+test('every UI zoom ladder value is accepted by settings validation', () => {
+  const settings = createSettings();
+  let value = settings.get('uiZoom');
+  for (let i = 0; i < 50; i++) {
+    value = nextZoom(value, 1);
+    settings.set('uiZoom', value);
+  }
+  assert.equal(value, ZOOM_MAX);
+  for (let i = 0; i < 50; i++) {
+    value = nextZoom(value, -1);
+    settings.set('uiZoom', value);
+  }
+  assert.equal(value, ZOOM_MIN);
 });

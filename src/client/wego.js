@@ -31,6 +31,9 @@ export async function connectWego({ socketPath } = {}) {
     sock.once('error', reject);
   });
 
+  // Node's UTF-8 decoder keeps partial multibyte sequences across chunks.
+  sock.setEncoding('utf8');
+
   let buffer = '';
   let nextId = 1;
   const pending = new Map(); // id -> {resolve, reject}
@@ -42,7 +45,7 @@ export async function connectWego({ socketPath } = {}) {
   };
 
   sock.on('data', (chunk) => {
-    buffer += chunk.toString('utf8');
+    buffer += chunk;
     let idx;
     while ((idx = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, idx);

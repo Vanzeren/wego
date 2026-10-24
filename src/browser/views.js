@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { partitionForProfile as partitionFor } from './partitions.js';
 import { zoomFromKey } from './zoom.js';
-import { cleanUserAgent } from './ua.js';
+import { cleanUserAgent, userAgentForUrl } from './ua.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +47,7 @@ export function setupViews(ctx) {
   // The id is `url#N`: concurrent same-URL downloads no longer overwrite each
   // other, and settled entries prune after a 60s grace TTL so the registry cannot grow unbounded.
   const wiredSessions = new WeakSet();
+  const wiredUserAgentSessions = new WeakSet();
   let downloadSeq = 0;
   function wireDownloads(wc) {
     if (wiredSessions.has(wc.session)) return;
@@ -81,6 +82,23 @@ export function setupViews(ctx) {
     });
   }
 
+  function wireUserAgent(wc, defaultUserAgent) {
+    if (wiredUserAgentSessions.has(wc.session)) return;
+    wiredUserAgentSessions.add(wc.session);
+    wc.session.webRequest.onBeforeSendHeaders({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
+      const headers = details.requestHeaders;
+      const key = headers['User-Agent'] !== undefined ? 'User-Agent'
+        : headers['user-agent'] !== undefined ? 'user-agent' : 'User-Agent';
+      const current = headers[key];
+      const next = userAgentForUrl(defaultUserAgent, details.url, current);
+      if (next === current) {
+        callback({ requestHeaders: headers });
+        return;
+      }
+      callback({ requestHeaders: { ...headers, [key]: next } });
+    });
+  }
+
   function wireInput(wc) {
     wc.on('before-input-event', (event, input) => {
       // Ctrl+F: toggle the find bar regardless of which webContents has focus.
@@ -104,8 +122,17 @@ export function setupViews(ctx) {
     });
   }
 
-  function wireTabView(space, tab, view) {
+  function wireTabView(space, tab, view, defaultUserAgent) {
     const wc = view.webContents;
+    let activeUserAgent = null;
+    const syncUserAgent = (url) => {
+      const next = userAgentForUrl(defaultUserAgent, url);
+      if (!wc.isDestroyed() && next !== activeUserAgent) {
+        wc.setUserAgent(next);
+        activeUserAgent = next;
+      }
+    };
+    syncUserAgent(tab.url);
     // Global page zoom is re-applied on every navigation so Chromium's
     // per-origin zoom memory never diverges from the user's setting. Skip at
     // the default: applying a zoom forces a layout recompute that can race
@@ -136,6 +163,7 @@ export function setupViews(ctx) {
       return { action: 'deny' };
     });
     const trackUrl = (url) => {
+      syncUserAgent(url);
       ctx.spaces().noteUrl(space.id, tab.targetId, url === NEWTAB_URL ? 'about:blank' : url);
     };
     wc.on('did-navigate', (_e, url) => trackUrl(url));
@@ -167,9 +195,11 @@ export function setupViews(ctx) {
         disableDialogs: true,
       },
     });
-    wireTabView(space, tab, view);
-    wireDownloads(view.webContents);
-    view.webContents.setUserAgent(cleanUserAgent(view.webContents.getUserAgent()));
+    const wc = view.webContents;
+    const defaultUserAgent = cleanUserAgent(wc.getUserAgent());
+    wireTabView(space, tab, view, defaultUserAgent);
+    wireDownloads(wc);
+    wireUserAgent(wc, defaultUserAgent);
     // Match the chrome background: when a re-attached view (z-order raise on
     // tab switch) or a freshly created view has no compositor frame yet,
     // the area fills with this color — white here reads as a jarring flash.
@@ -180,7 +210,6 @@ export function setupViews(ctx) {
     // path). Doing it does not change z-order semantics: the layout self-heal
     // keeps the correct view on top either way.
     view.setBounds(ctx.initialViewBounds(space));
-    const wc = view.webContents;
     const intended = tab.url && tab.url !== 'about:blank' ? normalizeUrl(tab.url) : NEWTAB_URL;
     // The real Chromium targetId comes from the in-process debugger
     // (Target.getTargetInfo) — no marker navigation, no DevTools HTTP

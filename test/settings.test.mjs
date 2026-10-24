@@ -56,6 +56,23 @@ test('validators reject invalid values with WEGO_INVALID_ARGUMENT', () => {
   assert.deepEqual(s.all(), DEFAULTS);
 });
 
+test('prototype property names are rejected as setting keys and values', () => {
+  const s = createSettings({ persistence: createPersistence({ stateDir: tmpStateDir() }) });
+  const bad = [
+    ['searchEngine', 'constructor'],
+    ['searchEngine', 'toString'],
+    ['searchEngine', '__proto__'],
+    ['restoreSession', 'toString'],
+    ['constructor', true],
+    ['toString', true],
+    ['__proto__', true],
+  ];
+  for (const [key, value] of bad) {
+    assert.throws(() => s.set(key, value), (e) => e.error_code === 'WEGO_INVALID_ARGUMENT', `${key}=${value}`);
+  }
+  assert.deepEqual(s.all(), DEFAULTS);
+});
+
 test('boundary values are accepted', () => {
   const s = createSettings();
   s.set('uiZoom', 0.5);
@@ -80,12 +97,20 @@ test('invalid persisted values fall back to defaults', () => {
   assert.equal(s.get('pageZoomLevel'), 1); // valid values survive
 });
 
+test('persisted prototype search engine names fall back to DuckDuckGo', () => {
+  const stateDir = tmpStateDir();
+  fs.writeFileSync(path.join(stateDir, 'settings.json'), JSON.stringify({ searchEngine: 'constructor' }));
+  const s = createSettings({ persistence: createPersistence({ stateDir }) });
+  assert.equal(s.get('searchEngine'), 'duckduckgo');
+});
+
 test('searchUrlFor encodes the query into the template', () => {
   assert.equal(searchUrlFor('google', 'hello world'), 'https://www.google.com/search?q=hello%20world');
   assert.equal(searchUrlFor('baidu', '汉字'), `https://www.baidu.com/s?wd=${encodeURIComponent('汉字')}`);
   assert.equal(searchUrlFor('duckduckgo', 'a&b'), 'https://duckduckgo.com/?q=a%26b');
   // unknown engine falls back to DuckDuckGo
   assert.equal(searchUrlFor('nope', 'x'), 'https://duckduckgo.com/?q=x');
+  assert.equal(searchUrlFor('constructor', 'q'), 'https://duckduckgo.com/?q=q');
   assert.ok(Object.keys(SEARCH_ENGINES).length >= 4);
 });
 

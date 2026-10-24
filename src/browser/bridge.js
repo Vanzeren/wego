@@ -402,7 +402,7 @@ export async function startBridgeServer({ spaces, windowApi, cdpServer }) {
     const { id, method, params } = msg ?? {};
     if (id === undefined) return; // client push: ignore
     try {
-      if (typeof method !== 'string' || !dispatch[method]) throw bad(`Unknown method: ${method}`);
+      if (typeof method !== 'string' || !Object.hasOwn(dispatch, method)) throw bad(`Unknown method: ${method}`);
       if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
         throw bad('params must be an object');
       }

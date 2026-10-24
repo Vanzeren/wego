@@ -39,7 +39,7 @@ const VALIDATORS = {
     }
   },
   searchEngine(v) {
-    if (typeof v !== 'string' || !SEARCH_ENGINES[v]) {
+    if (typeof v !== 'string' || !Object.hasOwn(SEARCH_ENGINES, v)) {
       throw invalid('searchEngine', `one of: ${Object.keys(SEARCH_ENGINES).join(', ')}`);
     }
   },
@@ -70,7 +70,7 @@ export function createSettings({ persistence, onChange } = {}) {
   }
 
   function set(key, value) {
-    if (!VALIDATORS[key]) throw invalid(key, `one of: ${Object.keys(DEFAULTS).join(', ')}`);
+    if (!Object.hasOwn(VALIDATORS, key)) throw invalid(key, `one of: ${Object.keys(DEFAULTS).join(', ')}`);
     VALIDATORS[key](value);
     data[key] = value;
     persistence?.saveSettings(all());
@@ -83,6 +83,8 @@ export function createSettings({ persistence, onChange } = {}) {
 // Build the search URL for an engine key + raw query. Unknown keys fall back
 // to DuckDuckGo so a stale value never breaks the omnibox.
 export function searchUrlFor(engineKey, query) {
-  const engine = SEARCH_ENGINES[engineKey] ?? SEARCH_ENGINES.duckduckgo;
+  const engine = Object.hasOwn(SEARCH_ENGINES, engineKey)
+    ? SEARCH_ENGINES[engineKey]
+    : SEARCH_ENGINES.duckduckgo;
   return engine.url.replace('%s', encodeURIComponent(query));
 }

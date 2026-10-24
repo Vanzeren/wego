@@ -139,6 +139,7 @@ export class SpaceManager extends EventEmitter {
   }
 
   createTaskSpace({ name, profileId = 'Default', profileName }) {
+    let userOwnedName = false;
     for (const s of this.#spaces.values()) {
       if (s.name !== name) continue;
       if (s.ownership === 'agent') {
@@ -149,8 +150,9 @@ export class SpaceManager extends EventEmitter {
         }
         return { id: s.id, taskId: s.taskId, name: s.name };
       }
-      throw err('WEGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
+      userOwnedName = true;
     }
+    if (userOwnedName) throw err('WEGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
     const space = this.#newSpace({ name, createdBy: 'agent', ownership: 'agent', control: 'agent', profileId });
     space.profileName = profileName ?? profileId;
     // ego parity: a new task space starts with Page p1 on a blank tab.
@@ -160,6 +162,13 @@ export class SpaceManager extends EventEmitter {
 
   claimTaskSpace({ id, name }) {
     const space = this.requireSpace(id);
+    if (name && name !== space.name) {
+      for (const other of this.#spaces.values()) {
+        if (other !== space && other.ownership === 'agent' && other.name === name) {
+          throw err('WEGO_TASK_SPACE_NAME_IN_USE', `Task space name in use: ${name}`);
+        }
+      }
+    }
     space.ownership = 'agent';
     space.control = 'agent';
     if (name) space.name = name;
@@ -201,6 +210,9 @@ export class SpaceManager extends EventEmitter {
 
   takeOverTaskSpace({ id }) {
     const space = this.requireSpace(id);
+    if (space.ownership !== 'agent') {
+      throw err('WEGO_TASK_SPACE_USER_IN_CONTROL', `Task space ${id} is user-owned`);
+    }
     space.control = 'agent';
     this.#changed(space);
     return `${id} has been taken over by the agent.`;
@@ -241,7 +253,24 @@ export class SpaceManager extends EventEmitter {
   // Rebuild spaces from serializeState() data. Views are created lazily
   // through the same hook as live tabs (marker → real targetId → real URL).
   restoreState(data) {
-    if (!data || !Array.isArray(data.spaces)) return false;
+    if (!data || !Array.isArray(data.spaces) || data.spaces.length === 0) return false;
+
+    // Validate the complete snapshot before mutating spaces, ids, or views.
+    const ids = new Set();
+    let maxId = 0;
+    for (const saved of data.spaces) {
+      if (!saved || typeof saved !== 'object' || !Number.isInteger(saved.id) || saved.id < 1 || ids.has(saved.id)) {
+        return false;
+      }
+      ids.add(saved.id);
+      maxId = Math.max(maxId, saved.id);
+      if (Array.isArray(saved.tabs)) {
+        for (const tab of saved.tabs) {
+          if (!tab || typeof tab !== 'object') return false;
+        }
+      }
+    }
+
     for (const saved of data.spaces) {
       const space = {
         id: saved.id,
@@ -263,13 +292,12 @@ export class SpaceManager extends EventEmitter {
       const idx = Math.min(saved.activeTabIndex ?? 0, tabs.length - 1);
       if (space.tabs[idx]) space.activeTargetId = space.tabs[idx].targetId;
     }
-    if (Number.isInteger(data.nextSpaceId) && data.nextSpaceId > this.#nextSpaceId) {
-      this.#nextSpaceId = data.nextSpaceId;
-    }
+    const savedNextSpaceId = Number.isInteger(data.nextSpaceId) ? data.nextSpaceId : 1;
+    this.#nextSpaceId = Math.max(this.#nextSpaceId, savedNextSpaceId, maxId + 1);
     this.activeSpaceId = this.#spaces.has(data.activeSpaceId)
       ? data.activeSpaceId
       : (this.#spaces.keys().next().value ?? null);
-    return this.#spaces.size > 0;
+    return true;
   }
 
   // ---- tabs ----

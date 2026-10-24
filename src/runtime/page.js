@@ -239,7 +239,7 @@ export class Page {
       const label = this.space._labelForTarget(info.targetId);
       this._popups.push({ label, targetId: info.targetId });
       const waiters = this._popupWaiters.splice(0);
-      for (const w of waiters) w.resolve({ label, targetId: info.targetId });
+      for (const w of waiters) w.resolve(this.space.page(label));
     });
   }
 
@@ -670,24 +670,30 @@ export class Page {
   async selectOption(target, values) {
     const { objectId, session } = await resolveTarget(this, target, { checkActionable: false });
     if (values === null) {
-      await session.send('Runtime.callFunctionOn', {
+      const { exceptionDetails } = await session.send('Runtime.callFunctionOn', {
         objectId,
         functionDeclaration: `function(){ for (const o of this.options) o.selected = false; this.dispatchEvent(new Event('input',{bubbles:true})); this.dispatchEvent(new Event('change',{bubbles:true})); }`,
       });
+      if (exceptionDetails) {
+        const msg = exceptionDetails.exception?.description || exceptionDetails.text;
+        throw new CDPError(`selectOption failed: ${msg}`, 'WEGO_OPERATION_FAILED');
+      }
       return this._receipt();
     }
     const list = Array.isArray(values) ? values : [values];
-    const { result } = await session.send('Runtime.callFunctionOn', {
+    const { result, exceptionDetails } = await session.send('Runtime.callFunctionOn', {
       objectId,
       functionDeclaration: `function(specs){
         const picked = [];
         for (const spec of specs) {
           let found = null;
           for (const o of this.options) {
-            if ('label' in spec && o.label === spec.label) found = o;
-            else if ('index' in spec && o.index === spec.index) found = o;
-            else if (typeof spec === 'string' && o.value === spec) found = o;
-            if (found) break;
+            if (typeof spec === 'string') {
+              if (o.value === spec) found = o;
+            } else if (spec && typeof spec === 'object') {
+              if ('label' in spec && o.label === spec.label) found = o;
+              else if ('index' in spec && o.index === spec.index) found = o;
+            }
           }
           if (!found) return { error: 'option_not_found' };
           found.selected = true;
@@ -700,6 +706,10 @@ export class Page {
       arguments: [{ value: list }],
       returnByValue: true,
     });
+    if (exceptionDetails) {
+      const msg = exceptionDetails.exception?.description || exceptionDetails.text;
+      throw new CDPError(`selectOption failed: ${msg}`, 'WEGO_OPERATION_FAILED');
+    }
     if (result.value?.error) throw new CDPError(`selectOption: option not found in ${target}`, 'WEGO_OPERATION_FAILED');
     return this._receipt();
   }

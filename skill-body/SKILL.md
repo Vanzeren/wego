@@ -164,6 +164,12 @@ if (active && !active.label) {
 tab. Close agent-created Pages with `page.close()`. Treat `openedBy: "unknown"`
 as user-owned when deciding whether a Page may be closed.
 
+`finish({ keep })` closes only Pages with `openedBy: "agent"`. Pages marked
+`"user"` or `"unknown"` are preserved even when `keep` is empty. Existing
+tabs materialized by `claimTaskSpace()` / `takeOverTaskSpace()` start as
+`"unknown"` for this reason. If any Pages remain, the space is completed and
+returned to user control instead of being deleted.
+
 ## Page operations
 
 wego-browser provides the following Page API:
@@ -349,6 +355,9 @@ same space:
 const task = await takeOverTaskSpace(7);
 const userPage = task.userPage();
 ```
+
+`takeOverTaskSpace(id)` is only for agent-owned spaces previously handed off.
+For a user-owned space, use `claimTaskSpace(id)` as shown below.
 
 Claim a user-owned or inactive space only when the user explicitly asks. Find
 its numeric id first; names may be duplicated. `listTaskSpaces()` entries

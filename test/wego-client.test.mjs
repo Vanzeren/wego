@@ -143,3 +143,29 @@ test('bridge error objects propagate with error_code', async (t) => {
   t.after(() => ego.close());
   await assert.rejects(() => ego.claimTaskSpace(7), (e) => e.error_code === 'WEGO_TASK_SPACE_NOT_FOUND');
 });
+
+test('UTF-8 responses survive socket chunks split inside a character', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ego-client-utf8-'));
+  const sockPath = path.join(dir, 'fake.sock');
+  const expected = `维护${'x'.repeat(70_000)}`;
+  const server = net.createServer((s) => {
+    let request = '';
+    let answered = false;
+    s.on('data', (chunk) => {
+      request += chunk.toString('utf8');
+      if (answered || !request.includes('\n')) return;
+      answered = true;
+      const response = Buffer.from(`${JSON.stringify({ id: 1, result: { currentVersion: expected, updateAvailable: false } })}\n`);
+      const split = response.indexOf(Buffer.from('维')) + 1;
+      s.write(response.subarray(0, split));
+      setTimeout(() => s.write(response.subarray(split)), 5);
+    });
+  });
+  await new Promise((resolve) => server.listen(sockPath, resolve));
+  t.after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  const ego = await connectWego({ socketPath: sockPath });
+  t.after(() => ego.close());
+  const version = await ego.getBrowserVersion();
+  assert.equal(version.currentVersion, expected);
+  assert.equal(version.currentVersion.includes('�'), false);
+});

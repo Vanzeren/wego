@@ -187,6 +187,10 @@ test('unknown method and malformed params are WEGO_INVALID_ARGUMENT', async (t) 
   const { sockPath } = await setup(t);
   let r = await request(sockPath, 'doesNotExist');
   assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
+  for (const method of ['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__']) {
+    r = await request(sockPath, method);
+    assert.equal(r.error?.error_code, 'WEGO_INVALID_ARGUMENT', method);
+  }
   r = await request(sockPath, 'listTabs', { id: 'seven' });
   assert.equal(r.error.error_code, 'WEGO_INVALID_ARGUMENT');
 });

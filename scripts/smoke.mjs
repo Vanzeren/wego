@@ -60,6 +60,24 @@ await page.waitForFunction(
 const headline = await page.evaluate(() => document.getElementById('headline').textContent);
 assert(headline === 'Welcome smoke@example.com', 'headline is "Welcome smoke@example.com", got: ' + headline);
 
+await page.selectOption('css=#plan', 'pro');
+assert(await page.evaluate(() => document.getElementById('plan').value === 'pro'), 'selectOption selects a string value');
+
+await page.evaluate(() => {
+  const link = document.createElement('a');
+  link.id = 'smoke-popup';
+  link.href = 'page2.html';
+  link.target = '_blank';
+  link.textContent = 'Smoke popup';
+  document.body.appendChild(link);
+});
+const popupPromise = page.waitForEvent('popup', { timeout: 8000 });
+await page.click('css=#smoke-popup');
+const popup = await popupPromise;
+await popup.waitForLoadState();
+assert((await popup.url()).endsWith('/page2.html'), 'popup event returns a usable Page');
+await popup.close();
+
 const shot = await page.screenshot({ path: '/tmp/wego-smoke.png' });
 assert(typeof shot === 'string' && shot.length > 0, 'screenshot saved: ' + shot);
 
@@ -89,6 +107,23 @@ await page.waitForFunction(
 );
 console.log('smoke assert ok: OOPIF cross-origin ref click worked');
 
+// Cold tab: snapshot is the first operation that needs a Page CDP session.
+await page.goto(${JSON.stringify(baseUrl + '/page.html')});
+const cold = await task.newPage(${JSON.stringify(baseUrl + '/oopif.html')});
+const coldFrameUrl = ${JSON.stringify(baseUrl.replace('127.0.0.1', 'localhost') + '/iframe.html')};
+const coldDeadline = Date.now() + 6000;
+for (;;) {
+  const { targetInfos } = await task.cdp('Target.getTargets');
+  if (targetInfos.some((t) => t.type === 'iframe' && t.url === coldFrameUrl)) break;
+  if (Date.now() >= coldDeadline) throw new Error('cold OOPIF target discovery timed out');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+const coldSnap = await cold.snapshot.raw();
+const coldFrameBtn = coldSnap.refs.find((r) => r.name === 'Frame button' && r.frameId);
+assert(coldFrameBtn, 'snapshot-first cold tab discovers OOPIF targets');
+await cold.close();
+console.log('smoke assert ok: snapshot-first cold tab discovers OOPIF targets');
+
 // subtree scope: '@N' string root on a top-page node
 await page.goto(${JSON.stringify(baseUrl + '/page.html')});
 const full = await page.snapshot.raw();
@@ -113,6 +148,11 @@ await page.goto(${JSON.stringify(baseUrl + '/page.html')});
 await page.click('text="wrapee"');
 await page.waitForURL(/page2/, { timeout: 5000 });
 console.log('smoke assert ok: zero-area text carrier climbed to ancestor link');
+
+const expectedTitle = '维护'.repeat(40000);
+await page.evaluate((value) => { document.title = value; }, expectedTitle);
+const actualTitle = await page.title();
+assert(actualTitle === expectedTitle, 'UTF-8 title survives chunked bridge responses');
 
 await task.finish({ keep: [] });
 console.log('SMOKE SCRIPT DONE');
@@ -152,6 +192,10 @@ try {
   check(result.out.includes('Welcome smoke@example.com'), 'assert: headline updated after Sign in');
   check(result.out.includes('file chooser upload reflected'), 'assert: file chooser upload');
   check(result.out.includes('OOPIF cross-origin ref click worked'), 'assert: OOPIF ref click');
+  check(result.out.includes('smoke assert ok: snapshot-first cold tab discovers OOPIF targets'), 'assert: cold OOPIF discovery');
+  check(result.out.includes('smoke assert ok: selectOption selects a string value'), 'assert: selectOption string value');
+  check(result.out.includes('smoke assert ok: popup event returns a usable Page'), 'assert: popup Page API');
+  check(result.out.includes('smoke assert ok: UTF-8 title survives chunked bridge responses'), 'assert: UTF-8 chunk handling');
   check(result.out.includes('subtree scope and clipboard paste'), 'assert: subtree scope + paste');
   check(fs.existsSync('/tmp/wego-smoke.png') && fs.statSync('/tmp/wego-smoke.png').size > 0, 'screenshot exists at /tmp/wego-smoke.png');
   failed = checks.some((c) => !c.ok);

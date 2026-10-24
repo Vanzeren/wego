@@ -62,12 +62,15 @@ All task-space methods take the numeric space `id` explicitly in `params`.
     and returns its descriptor — name collision with a *user-owned* space
     returns the error).
 - `claimTaskSpace({ id, name? })` → `{ id, taskId, name }`
-  - Errors: `WEGO_TASK_SPACE_NOT_FOUND` (`"Task space not found: <id>"`).
+  - Errors: `WEGO_TASK_SPACE_NOT_FOUND` (`"Task space not found: <id>"`),
+    `WEGO_TASK_SPACE_NAME_IN_USE` (another agent-owned space has `name`).
 - `closeTaskSpace({ id })` → `"<id> task space closed."` (destroys tabs+space)
 - `completeTaskSpace({ id })` → `"<id> task space completed."` (space stays,
   ownership flips to user)
 - `handOffTaskSpace({ id })` → `"<id> has been handed off to the user."`
 - `takeOverTaskSpace({ id })` → `"<id> has been taken over by the agent."`
+  - Only agent-owned spaces can be taken over. User-owned spaces return
+    `WEGO_TASK_SPACE_USER_IN_CONTROL`; use `claimTaskSpace` instead.
 - `setAgentTaskState({ id, state })` → `"<id> state updated."`
 - `animationHighlightMouseToPosition({ id, x, y })` → `"<id> mouse highlight shown."`
 
@@ -108,7 +111,8 @@ Tab mutation while `control === "user"` fails with
 ### Zoom
 
 - `appZoom({ scope: "ui"|"page", dir: -1|0|1 })` → `{ uiZoom, pageZoomLevel }`
-  - `ui`: scales the whole chrome UI (zoomFactor ladder, ×1.1 steps).
+  - `ui`: scales the whole chrome UI (zoomFactor ladder, ×1.1 steps, clamped
+    to 0.5–2.0).
     `page`: browser-style layout zoom on the active tab (Chromium zoom-level
     ladder, 0.5 steps; per-origin persistence is native). `dir: 0` resets.
     Same code path as the `Ctrl +/-/0` (page) and `Ctrl+Shift +/-/0` (UI)
