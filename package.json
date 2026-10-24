@@ -4,7 +4,6 @@
   "description": "wego — the browser you and your agents share (Linux). Electron shell + native bridge + wego-browser SDK",
   "type": "module",
   "main": "src/browser/main.js",
-  "private": true,
   "license": "MIT",
   "author": "wego contributors",
   "repository": {
@@ -55,5 +54,18 @@
   },
   "allowScripts": {
     "electron@38.8.6": true
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skill-body/",
+    "skills/",
+    "docs/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
