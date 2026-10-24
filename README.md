@@ -123,10 +123,10 @@ Full guide, Python variant, and browser-use compatibility status:
   (`wego-browser profiles create <name>`) get isolated cookie/storage
   partitions; bind a space with `taskSpace(name, { profile: "Profile 2" })`.
 - Chrome onboarding: `wego-browser profiles import-chrome` decrypts and
-  imports your desktop Chrome cookies (libsecret/GNOME or KWallet/KDE
-  keyring) — verified to carry real login state. Target another ego profile
-  with `--profile "Profile 2"` or another Chrome profile dir with
-  `--chrome-dir`.
+  imports your desktop Chrome cookies with their original host-only/domain
+  scope (libsecret/GNOME or KWallet/KDE keyring) — verified to carry real
+  login state. Target another ego profile with `--profile "Profile 2"` or
+  another Chrome profile dir with `--chrome-dir`.
 - Spaces persist across browser restarts (`~/.wego/spaces.json`): names,
   ownership, tabs, and page URLs are restored; control resets to the user and
   an agent regains it by resuming the space by name.

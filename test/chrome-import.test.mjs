@@ -113,6 +113,19 @@ test('importChromeCookieDescriptors decrypts and shapes Electron cookies', async
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('import preserves host-only and domain cookie scopes', async () => {
+  const { dir } = makeCookiesDb([
+    ['accounts.google.com', 'LSID', 'host-value', Buffer.alloc(0), '/', 0, 1, 1, 2],
+    ['.google.com', 'SID', 'domain-value', Buffer.alloc(0), '/', 0, 1, 1, 2],
+  ]);
+  const { cookies } = await importChromeCookieDescriptors({ chromeDir: dir, password: 'peanuts' });
+  const hostOnly = cookies.find((cookie) => cookie.name === 'LSID');
+  const domain = cookies.find((cookie) => cookie.name === 'SID');
+  assert.equal(hostOnly.domain, undefined, 'host-only cookies must omit domain');
+  assert.equal(domain.domain, '.google.com');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('importChromeCookieDescriptors stages the DB copy under stateDir and cleans up', async () => {
   const host = '.example.com';
   const payload = Buffer.concat([crypto.createHash('sha256').update(host).digest(), Buffer.from('tok')]);

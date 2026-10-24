@@ -173,7 +173,7 @@ export async function importChromeCookieDescriptors({ chromeDir, password, state
       url: `${row.secure ? 'https' : 'http'}://${bareHost}${row.path}`,
       name: row.name,
       value,
-      domain: row.host,
+      ...(row.host.startsWith('.') ? { domain: row.host } : {}),
       path: row.path,
       secure: row.secure,
       httpOnly: row.httpOnly,

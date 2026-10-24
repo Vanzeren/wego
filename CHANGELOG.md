@@ -27,6 +27,9 @@ All notable changes to wego are documented here. The format follows
 - Use a scoped Firefox-compatible identity on `accounts.google.com` so Google
   OAuth can proceed, restoring the normal UA on every non-Google request and
   navigation instead of changing cookies or disabling security features.
+- Preserve host-only versus domain scope when importing Chrome cookies,
+  preventing duplicate Google/OpenAI OAuth state and `CookieMismatch` after
+  import into Electron.
 
 ## [0.1.0] — 2026-10-23
 
